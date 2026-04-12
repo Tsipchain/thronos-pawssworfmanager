@@ -32,8 +32,14 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         adapters = resp.body["data"]["adapters"]
         self.assertEqual(adapters["manifest_store"], "in_memory")
+        self.assertEqual(adapters["blob_storage"], "in_memory")
+        self.assertEqual(adapters["attestation"], "fake")
+        self.assertEqual(adapters["execution_mode"], "dry_run")
+        self.assertTrue(adapters["dry_run_enabled"])
         self.assertEqual(adapters["idempotency_scope"], "single_instance_memory")
         self.assertEqual(adapters["selection_policy"]["mode"], "allowlist")
+        self.assertTrue(adapters["blob_capabilities"]["dry_run_supported"])
+        self.assertTrue(adapters["attestation_capabilities"]["dry_run_supported"])
 
     def test_command_execute_success(self):
         shell = create_runtime_shell()

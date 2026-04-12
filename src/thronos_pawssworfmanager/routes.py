@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 
-from .adapters.attestation import FakeAttestationAdapter
+from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
+from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage
 from .adapters.config import backend_selection_policy, resolve_adapter_config
 from .adapters.identity import StaticIdentity
 from .adapters.manifest_store import InMemoryManifestStore
@@ -27,7 +28,23 @@ from .startup_validation import validate_data_paths
 _ADAPTER_CONFIG = resolve_adapter_config(os.environ)
 _SELECTION_POLICY = backend_selection_policy()
 _MANIFEST_STORE = InMemoryManifestStore()
-_ATTESTATION = FakeAttestationAdapter()
+_BLOB_STORAGE = (
+    InMemoryBlobStorage()
+    if _ADAPTER_CONFIG.blob_storage_backend == "in_memory"
+    else DryRunBlobStorageProvider(
+        _ADAPTER_CONFIG.blob_storage_backend,
+        exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
+    )
+)
+_ATTESTATION = (
+    FakeAttestationAdapter()
+    if _ADAPTER_CONFIG.attestation_backend == "fake"
+    else DryRunChainAttestationAdapter(
+        _ADAPTER_CONFIG.attestation_backend,
+        exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
+        simulate_failure=os.getenv("SIMULATE_ATTESTATION_FAILURE", "0") == "1",
+    )
+)
 _IDENTITY = StaticIdentity()
 _ORCHESTRATOR = CommandOrchestrator(
     _MANIFEST_STORE,
@@ -56,10 +73,15 @@ def _capability_report() -> dict:
         },
         "adapters": {
             "manifest_store": _ADAPTER_CONFIG.manifest_store_backend,
+            "blob_storage": _ADAPTER_CONFIG.blob_storage_backend,
             "attestation": _ADAPTER_CONFIG.attestation_backend,
             "identity": _ADAPTER_CONFIG.identity_backend,
+            "execution_mode": _ADAPTER_CONFIG.execution_mode,
+            "dry_run_enabled": _ADAPTER_CONFIG.dry_run_enabled,
             "selection_policy": _SELECTION_POLICY.to_dict(),
             "idempotency_scope": _ADAPTER_CONFIG.idempotency_scope,
+            "blob_capabilities": _BLOB_STORAGE.capabilities(),
+            "attestation_capabilities": _ATTESTATION.capabilities(),
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -80,7 +102,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m4-internal-command-contract",
+        "phase": "m5-real-adapter-wiring-dry-run",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
     }
