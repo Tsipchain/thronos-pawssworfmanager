@@ -1,19 +1,24 @@
-# Phase 1 Decision Freeze (Preparation Draft)
+# Phase 1 Decision Freeze (Approved)
 
-## Purpose
+## Freeze approval status
 
-Define what must be frozen before Phase 1 implementation can begin, and what remains intentionally unfrozen.
+Founder approval received for all Phase 1 blocker defaults.
 
-## What is now proposed to be frozen (pending approval)
+## Frozen decisions (effective for Phase 1)
 
-1. **OD-01 Canonical encoding:** JCS canonical JSON.
-2. **OD-02 Encryption profile:** XChaCha20-Poly1305.
-3. **OD-03 KDF policy:** Argon2id with documented baseline parameters.
-4. **OD-04 Version commitment structure:** manifest hash + parent hash + monotonic version.
+1. **OD-01:** JCS canonical JSON.
+2. **OD-02:** XChaCha20-Poly1305.
+3. **OD-03:** Argon2id.
+4. **OD-04:** manifest hash + parent hash + monotonic version.
 
-These four are the true Phase 1 blockers.
+## What is now frozen
 
-## What remains unfrozen after this pass
+- Canonical state encoding contract for deterministic hashing.
+- Encryption profile baseline for client-side blob encryption.
+- KDF baseline policy family for key derivation.
+- Version-chain commitment structure for rollback/fork detection.
+
+## What remains unfrozen
 
 - OD-05 Attestation submission strategy.
 - OD-06 Thronos contract/event shape.
@@ -23,20 +28,17 @@ These four are the true Phase 1 blockers.
 - OD-10 Verification responsibility split.
 - OD-11 Multi-device key portability boundary.
 
-## What implementation may begin only after freeze approval
+## Implementation may begin only within this boundary
 
-After approval of OD-01..OD-04, teams may begin only:
+Allowed for Phase 1 start:
+- deterministic canonicalization and hashing contract implementation,
+- version-chain continuity contract implementation,
+- Argon2id parameter profile validation harness,
+- module/interface scaffolding defined in planning docs.
 
-- deterministic canonicalization contract documentation-to-test translation,
-- crypto-interface contract scaffolding (no production crypto logic),
-- version-chain data contract scaffolding,
-- Phase 1 validation tests for determinism, version monotonicity, and parent-link continuity.
-
-## What still may NOT begin after this freeze alone
-
-- production cryptographic implementation,
-- production storage backend integration,
-- production attestation integration/writes,
-- production authentication/authorization implementation.
-
-Additional decision closures are required in their respective domains before those implementations start.
+Still disallowed in this pass and until separately approved:
+- storage backend implementation,
+- auth implementation,
+- API runtime implementation,
+- blockchain write implementation,
+- UI/sharing/recovery/multi-device feature implementation.

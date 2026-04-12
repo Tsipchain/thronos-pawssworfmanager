@@ -1,19 +1,17 @@
-# Decision Summary (Phase 1 Freeze Prep)
+# Decision Summary (Phase 1 Start Readiness)
 
-## A) Proposed defaults (Phase 1 blocker candidates)
+## A) Frozen Phase 1 blocker decisions (approved)
 
-These are proposed for freeze approval before Phase 1 implementation starts.
-
-| OD | Proposed default | Freeze intent |
+| OD | Frozen default | Status |
 |---|---|---|
-| OD-01 | JCS canonical JSON for canonical hash input bytes | Freeze candidate |
-| OD-02 | XChaCha20-Poly1305 encryption profile | Freeze candidate |
-| OD-03 | Argon2id with documented minimum parameters | Freeze candidate |
-| OD-04 | Manifest hash + parent hash + monotonic version | Freeze candidate |
+| OD-01 | JCS canonical JSON for canonical hash input bytes | **Frozen** |
+| OD-02 | XChaCha20-Poly1305 encryption profile | **Frozen** |
+| OD-03 | Argon2id with documented minimum parameters | **Frozen** |
+| OD-04 | Manifest hash + parent hash + monotonic version | **Frozen** |
 
-## B) Still-open decisions (non-blocking for Phase 1 start)
+## B) Still-open decisions (non-Phase-1-blocking)
 
-| OD | Current recommended direction | Blocking scope |
+| OD | Current favored direction | Blocks which implementation scope |
 |---|---|---|
 | OD-05 | Async attestation submission lifecycle | Attestation implementation |
 | OD-06 | Event-only on-chain attestation log (v1) | Attestation implementation |
@@ -23,31 +21,17 @@ These are proposed for freeze approval before Phase 1 implementation starts.
 | OD-10 | Server endpoint + independent client verification capability | Attestation verification implementation |
 | OD-11 | Client export/import only | Multi-device portability hardening |
 
-## C) Resolution gates by implementation domain
+## C) Phase 1-start blocker gate (satisfied by freeze)
 
-### Before any crypto implementation
-- OD-01, OD-02, OD-03, OD-04
+- OD-01, OD-02, OD-03, OD-04 are frozen and can be used as implementation inputs.
+
+## D) Remaining gate requirements by domain
 
 ### Before any storage implementation
-- OD-04, OD-09
+- OD-09 (and keep OD-04 applied)
 
 ### Before any attestation implementation
-- OD-01, OD-04, OD-05, OD-06, OD-10
+- OD-05, OD-06, OD-10 (and keep OD-01/OD-04 applied)
 
 ### Before any auth implementation
 - OD-07
-
-## D) True blockers for Phase 1
-
-- OD-01 canonical encoding
-- OD-02 encryption profile
-- OD-03 KDF policy
-- OD-04 version commitment structure
-
-## E) Approval checklist for freeze
-
-A blocker is freeze-approved when:
-1. engineering + security sign off on selected default,
-2. alternatives and rejection rationale are documented,
-3. impacts are propagated to architecture/data/API docs,
-4. acceptance tests are defined for subsequent implementation work.
