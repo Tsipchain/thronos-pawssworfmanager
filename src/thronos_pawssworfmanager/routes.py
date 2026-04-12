@@ -6,7 +6,7 @@ import os
 
 from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
 from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage
-from .adapters.config import backend_selection_policy, resolve_adapter_config
+from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
 from .adapters.identity import StaticIdentity
 from .adapters.manifest_store import InMemoryManifestStore
 from .api_versioning import DEFAULT_API_VERSION, SUPPORTED_API_VERSIONS
@@ -27,6 +27,7 @@ from .startup_validation import validate_data_paths
 
 _ADAPTER_CONFIG = resolve_adapter_config(os.environ)
 _SELECTION_POLICY = backend_selection_policy()
+_EXECUTION_POLICY = execution_policy_status(_ADAPTER_CONFIG)
 _MANIFEST_STORE = InMemoryManifestStore()
 _BLOB_STORAGE = (
     InMemoryBlobStorage()
@@ -79,6 +80,7 @@ def _capability_report() -> dict:
             "execution_mode": _ADAPTER_CONFIG.execution_mode,
             "dry_run_enabled": _ADAPTER_CONFIG.dry_run_enabled,
             "selection_policy": _SELECTION_POLICY.to_dict(),
+            "execution_policy": _EXECUTION_POLICY,
             "idempotency_scope": _ADAPTER_CONFIG.idempotency_scope,
             "blob_capabilities": _BLOB_STORAGE.capabilities(),
             "attestation_capabilities": _ATTESTATION.capabilities(),
@@ -102,9 +104,10 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m5-real-adapter-wiring-dry-run",
+        "phase": "m5.1-execution-policy-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
+        "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
     }
 
 

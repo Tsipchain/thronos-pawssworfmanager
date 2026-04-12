@@ -38,6 +38,8 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertTrue(adapters["dry_run_enabled"])
         self.assertEqual(adapters["idempotency_scope"], "single_instance_memory")
         self.assertEqual(adapters["selection_policy"]["mode"], "allowlist")
+        self.assertTrue(adapters["execution_policy"]["startup_allowed"])
+        self.assertEqual(adapters["execution_policy"]["enforcement"], "fail_closed")
         self.assertTrue(adapters["blob_capabilities"]["dry_run_supported"])
         self.assertTrue(adapters["attestation_capabilities"]["dry_run_supported"])
 
@@ -124,6 +126,12 @@ class TestRuntimeShell(unittest.TestCase):
         resp = shell.handle("GET", "/does-not-exist")
         self.assertEqual(resp.status, 404)
         self.assertEqual(resp.body["code"], ERR_ROUTE_NOT_FOUND)
+
+    def test_metadata_reports_execution_policy_enforced(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("GET", "/v1/metadata")
+        self.assertEqual(resp.status, 200)
+        self.assertTrue(resp.body["data"]["execution_policy_enforced"])
 
     def test_invalid_api_version(self):
         shell = create_runtime_shell()

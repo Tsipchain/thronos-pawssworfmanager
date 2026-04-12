@@ -1,4 +1,4 @@
-"""Adapter configuration contracts and backend selection rules."""
+"""Adapter configuration contracts, execution policy matrix, and startup refusal rules."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ _ALLOWED_BLOB_STORAGE = {"in_memory", "s3", "gcs", "azure_blob"}
 _ALLOWED_ATTESTATION = {"fake", "thronos_chain"}
 _ALLOWED_IDENTITY = {"static"}
 _ALLOWED_EXECUTION_MODES = {"dry_run", "execute"}
+_REAL_LIKE_BLOB = {"s3", "gcs", "azure_blob"}
+_CHAIN_LIKE_ATTESTATION = {"thronos_chain"}
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,53 @@ class AdapterConfig:
     @property
     def dry_run_enabled(self) -> bool:
         return self.execution_mode == "dry_run"
+
+
+def _policy_matrix() -> dict[str, dict[str, bool]]:
+    return {
+        "blob_storage": {
+            "in_memory+dry_run": True,
+            "in_memory+execute": True,
+            "real_like+dry_run": True,
+            "real_like+execute": False,
+        },
+        "attestation": {
+            "fake+dry_run": True,
+            "fake+execute": True,
+            "chain_like+dry_run": True,
+            "chain_like+execute": False,
+        },
+    }
+
+
+def _blob_policy_allowed(blob_backend: str, execution_mode: str) -> bool:
+    if blob_backend == "in_memory":
+        return execution_mode in {"dry_run", "execute"}
+    if blob_backend in _REAL_LIKE_BLOB:
+        return execution_mode == "dry_run"
+    return False
+
+
+def _attestation_policy_allowed(attestation_backend: str, execution_mode: str) -> bool:
+    if attestation_backend == "fake":
+        return execution_mode in {"dry_run", "execute"}
+    if attestation_backend in _CHAIN_LIKE_ATTESTATION:
+        return execution_mode == "dry_run"
+    return False
+
+
+def execution_policy_status(config: AdapterConfig) -> dict:
+    blob_allowed = _blob_policy_allowed(config.blob_storage_backend, config.execution_mode)
+    att_allowed = _attestation_policy_allowed(config.attestation_backend, config.execution_mode)
+    return {
+        "matrix": _policy_matrix(),
+        "blob_pair": f"{config.blob_storage_backend}+{config.execution_mode}",
+        "blob_allowed": blob_allowed,
+        "attestation_pair": f"{config.attestation_backend}+{config.execution_mode}",
+        "attestation_allowed": att_allowed,
+        "startup_allowed": blob_allowed and att_allowed,
+        "enforcement": "fail_closed",
+    }
 
 
 _POLICY = BackendSelectionPolicy(
@@ -73,14 +122,16 @@ def resolve_adapter_config(env: dict[str, str]) -> AdapterConfig:
     if execution_mode not in _ALLOWED_EXECUTION_MODES:
         raise ValueError("unsupported_adapter_execution_mode")
 
-    # M5 hard stop: execute mode is blocked for real providers.
-    if execution_mode == "execute" and (blob_storage != "in_memory" or attestation != "fake"):
-        raise ValueError("real_execution_mode_not_allowed")
-
-    return AdapterConfig(
+    config = AdapterConfig(
         manifest_store_backend=manifest_store,
         blob_storage_backend=blob_storage,
         attestation_backend=attestation,
         identity_backend=identity,
         execution_mode=execution_mode,
     )
+
+    status = execution_policy_status(config)
+    if not status["startup_allowed"]:
+        raise ValueError("forbidden_backend_execution_combination")
+
+    return config
