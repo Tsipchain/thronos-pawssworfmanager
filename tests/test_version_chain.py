@@ -14,6 +14,10 @@ class TestVersionChain(unittest.TestCase):
         result = verify_chain(nodes)
         self.assertTrue(result.ok)
 
+    def test_empty_chain_is_valid(self):
+        result = verify_chain([])
+        self.assertTrue(result.ok)
+
     def test_failure_parent_hash_mismatch(self):
         n1 = build_chain_node(1, "h1", None)
         n2 = build_chain_node(2, "h2", "wrong")
@@ -38,8 +42,20 @@ class TestVersionChain(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.code, "fork_detected")
 
-    def test_failure_invalid_genesis(self):
+    def test_failure_invalid_genesis_version(self):
         bad = build_chain_node(2, "h2", None)
         result = validate_chain_transition(None, bad)
         self.assertFalse(result.ok)
         self.assertEqual(result.code, "invalid_genesis_version")
+
+    def test_failure_invalid_genesis_parent(self):
+        bad = build_chain_node(1, "h1", "not-none")
+        result = validate_chain_transition(None, bad)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.code, "invalid_genesis_parent")
+
+    def test_failure_invalid_version_less_than_one(self):
+        bad = build_chain_node(0, "h0", None)
+        result = validate_chain_transition(None, bad)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.code, "invalid_version")

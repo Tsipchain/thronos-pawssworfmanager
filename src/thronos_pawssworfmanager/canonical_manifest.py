@@ -1,4 +1,11 @@
-"""Canonical manifest encoding using JCS-style deterministic JSON output."""
+"""Canonical manifest encoding using deterministic JSON output.
+
+JCS-alignment notes (current implementation):
+- Guarantees deterministic key ordering and no insignificant whitespace.
+- Guarantees non-finite numbers (NaN/Infinity) are rejected.
+- Does NOT claim full RFC 8785 conformance for every numeric edge representation.
+- Intended for deterministic-core Phase 1 only; cross-language conformance requires dedicated fixtures.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +29,9 @@ def validate_manifest_schema(manifest: Mapping[str, Any]) -> ValidationResult:
     if not isinstance(manifest["vault_id"], str) or not manifest["vault_id"]:
         return ValidationResult(False, "invalid_vault_id", "vault_id must be a non-empty string")
 
-    if not isinstance(manifest["version"], int) or manifest["version"] < 1:
+    # bool is a subclass of int in Python; explicitly disallow it for version.
+    version = manifest["version"]
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         return ValidationResult(False, "invalid_version", "version must be integer >= 1")
 
     if not isinstance(manifest["entries"], list):

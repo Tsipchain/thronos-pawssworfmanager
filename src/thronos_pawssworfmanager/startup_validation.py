@@ -28,4 +28,6 @@ def validate_data_paths() -> ValidationResult:
         path = Path(value)
         if not path.exists():
             return ValidationResult(False, "missing_path", f"path not found: {value}")
+        if not path.is_dir():
+            return ValidationResult(False, "path_not_directory", f"path is not directory: {value}")
     return ValidationResult(True)
