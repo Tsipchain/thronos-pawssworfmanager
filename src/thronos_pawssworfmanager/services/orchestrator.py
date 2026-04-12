@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 
 from ..adapters.attestation import AttestationAdapter
-from ..adapters.blob_storage import BlobStorageAdapter
+from ..adapters.blob_storage import BlobStorageAdapter, BlobStorageError
 from ..adapters.manifest_store import ManifestStoreAdapter
 from ..adapters.schemas import AttestationReceipt, BlobWriteReceipt, PersistenceReceipt
 from .retry_semantics import RetryPolicy, classify_failure, is_retryable
@@ -79,6 +79,7 @@ class CommandOrchestrator:
                 blob_id=blob_id,
                 execution_enabled=self.execution_enabled,
                 failure_class=None,
+                error_code=None,
             )
         if not self.execution_enabled:
             return BlobWriteReceipt(
@@ -88,18 +89,30 @@ class CommandOrchestrator:
                 blob_id=blob_id,
                 execution_enabled=False,
                 failure_class=None,
+                error_code=None,
             )
 
         try:
             raw = base64.b64decode(command_result["canonical_bytes"].encode("utf-8"))
-            self.blob_storage.put_blob(blob_id, raw)
+            status = self.blob_storage.put_blob(blob_id, raw)
             return BlobWriteReceipt(
                 operation="blob_write",
-                status="written",
+                status=status,
                 backend=self.blob_backend,
                 blob_id=blob_id,
                 execution_enabled=True,
                 failure_class=None,
+                error_code=None,
+            )
+        except BlobStorageError as exc:
+            return BlobWriteReceipt(
+                operation="blob_write",
+                status="failed",
+                backend=self.blob_backend,
+                blob_id=blob_id,
+                execution_enabled=True,
+                failure_class=exc.failure_class,
+                error_code=exc.code,
             )
         except Exception as exc:
             return BlobWriteReceipt(
@@ -109,6 +122,7 @@ class CommandOrchestrator:
                 blob_id=blob_id,
                 execution_enabled=True,
                 failure_class=classify_failure(exc),
+                error_code="blob_write_failed",
             )
 
     def _persist_with_policy(self, manifest_hash: str, manifest: dict) -> dict:
@@ -127,6 +141,7 @@ class CommandOrchestrator:
                         max_attempts=self.retry_policy.max_attempts,
                         retryable=False,
                         failure_class=None,
+                        error_code=None,
                         idempotency_scope=self.idempotency_scope,
                     )
                 }
@@ -163,6 +178,7 @@ class CommandOrchestrator:
                         max_attempts=self.retry_policy.max_attempts,
                         retryable=False,
                         failure_class=None,
+                        error_code=None,
                     )
                 }
             except Exception as exc:  # controlled boundary mapping

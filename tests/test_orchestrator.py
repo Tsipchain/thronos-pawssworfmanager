@@ -101,8 +101,28 @@ class TestOrchestrator(unittest.TestCase):
                     "chain_node": {"version": 1, "manifest_hash": "h2", "parent_hash": None},
                 }
             )
-            self.assertEqual(out["blob_receipt"]["status"], "written")
+            self.assertEqual(out["blob_receipt"]["status"], "created")
             self.assertEqual(blob.get_blob("h2"), b"hello")
+
+    def test_blob_write_failure_receipt_contains_error_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryManifestStore()
+            att = FakeAttestationAdapter()
+            blob = LocalFileBlobStorage(tmp, exec_enabled=True, max_blob_bytes=2)
+            orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
+            payload = base64.b64encode(b"hello").decode("utf-8")
+            out = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": "h3",
+                    "chain_node": {"version": 1, "manifest_hash": "h3", "parent_hash": None},
+                }
+            )
+            self.assertEqual(out["blob_receipt"]["status"], "failed")
+            self.assertEqual(out["blob_receipt"]["error_code"], "blob_too_large")
+            self.assertEqual(out["blob_receipt"]["failure_class"], "permanent")
 
     def test_orchestrator_retries_transient_attestation_failure(self):
         store = InMemoryManifestStore()

@@ -15,6 +15,7 @@ class PersistenceReceipt:
     max_attempts: int
     retryable: bool
     failure_class: str | None
+    error_code: str | None
     idempotency_scope: str
 
     def to_dict(self) -> dict:
@@ -29,6 +30,7 @@ class BlobWriteReceipt:
     blob_id: str
     execution_enabled: bool
     failure_class: str | None
+    error_code: str | None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -44,6 +46,7 @@ class AttestationReceipt:
     max_attempts: int
     retryable: bool
     failure_class: str | None
+    error_code: str | None
 
     def to_dict(self) -> dict:
         return asdict(self)

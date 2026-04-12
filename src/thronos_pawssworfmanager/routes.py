@@ -128,7 +128,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m8-first-real-blob-adapter-gated",
+        "phase": "m8.1-blob-execution-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
