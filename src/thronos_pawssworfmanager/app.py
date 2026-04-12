@@ -20,7 +20,7 @@ def create_app(validate_paths: bool = False) -> dict:
 
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m4-internal-command-contract",
+        "phase": "m5.1-execution-policy-hardening",
         "capabilities": [
             "canonical-manifest",
             "state-hash",
@@ -29,6 +29,7 @@ def create_app(validate_paths: bool = False) -> dict:
             "runtime-shell",
             "service-contract-layer",
             "internal-command-contract-layer",
+            "deterministic-command-pipeline",
         ],
         "disabled_sensitive_features": [
             "auth-runtime",
@@ -38,7 +39,7 @@ def create_app(validate_paths: bool = False) -> dict:
             "database-integration",
             "export-import-runtime",
             "vault-operations",
-            "vault-command-execution",
+            "vault-command-execution-side-effects",
         ],
         "routes": [f"{method} {path}" for method, path in shell.routes()],
         "path_validation": {

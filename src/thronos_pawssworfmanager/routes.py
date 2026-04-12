@@ -4,14 +4,56 @@ from __future__ import annotations
 
 import os
 
+from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
+from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage
+from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
+from .adapters.identity import StaticIdentity
+from .adapters.manifest_store import InMemoryManifestStore
 from .api_versioning import DEFAULT_API_VERSION, SUPPORTED_API_VERSIONS
 from .canonical_manifest import REQUIRED_TOP_LEVEL_FIELDS
 from .contracts import error_contract, success_contract
-from .error_model import ERR_READINESS_FAILED
+from .error_model import (
+    ERR_COMMAND_PIPELINE_FAILED,
+    ERR_COMMAND_VALIDATION_FAILED,
+    ERR_READINESS_FAILED,
+    ERR_UNSUPPORTED_COMMAND,
+)
 from .hash_policy import hash_policy_id
 from .internal_commands import command_schema_summary
 from .runtime import RouteResponse, RuntimeShell
+from .services.command_handler import handle_command, supported_commands
+from .services.orchestrator import CommandOrchestrator
 from .startup_validation import validate_data_paths
+
+_ADAPTER_CONFIG = resolve_adapter_config(os.environ)
+_SELECTION_POLICY = backend_selection_policy()
+_EXECUTION_POLICY = execution_policy_status(_ADAPTER_CONFIG)
+_MANIFEST_STORE = InMemoryManifestStore()
+_BLOB_STORAGE = (
+    InMemoryBlobStorage()
+    if _ADAPTER_CONFIG.blob_storage_backend == "in_memory"
+    else DryRunBlobStorageProvider(
+        _ADAPTER_CONFIG.blob_storage_backend,
+        exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
+    )
+)
+_ATTESTATION = (
+    FakeAttestationAdapter()
+    if _ADAPTER_CONFIG.attestation_backend == "fake"
+    else DryRunChainAttestationAdapter(
+        _ADAPTER_CONFIG.attestation_backend,
+        exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
+        simulate_failure=os.getenv("SIMULATE_ATTESTATION_FAILURE", "0") == "1",
+    )
+)
+_IDENTITY = StaticIdentity()
+_ORCHESTRATOR = CommandOrchestrator(
+    _MANIFEST_STORE,
+    _ATTESTATION,
+    manifest_backend=_ADAPTER_CONFIG.manifest_store_backend,
+    attestation_backend=_ADAPTER_CONFIG.attestation_backend,
+    idempotency_scope=_ADAPTER_CONFIG.idempotency_scope,
+)
 
 
 def _capability_report() -> dict:
@@ -28,6 +70,20 @@ def _capability_report() -> dict:
         "internal_command_layer": {
             "enabled": True,
             "execution_enabled": False,
+            "supported_commands": supported_commands(),
+        },
+        "adapters": {
+            "manifest_store": _ADAPTER_CONFIG.manifest_store_backend,
+            "blob_storage": _ADAPTER_CONFIG.blob_storage_backend,
+            "attestation": _ADAPTER_CONFIG.attestation_backend,
+            "identity": _ADAPTER_CONFIG.identity_backend,
+            "execution_mode": _ADAPTER_CONFIG.execution_mode,
+            "dry_run_enabled": _ADAPTER_CONFIG.dry_run_enabled,
+            "selection_policy": _SELECTION_POLICY.to_dict(),
+            "execution_policy": _EXECUTION_POLICY,
+            "idempotency_scope": _ADAPTER_CONFIG.idempotency_scope,
+            "blob_capabilities": _BLOB_STORAGE.capabilities(),
+            "attestation_capabilities": _ATTESTATION.capabilities(),
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -48,9 +104,10 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m4-internal-command-contract",
+        "phase": "m5.1-execution-policy-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
+        "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
     }
 
 
@@ -58,19 +115,19 @@ def register_runtime_routes(shell: RuntimeShell) -> None:
     shell.register(
         "GET",
         "/healthz",
-        lambda: RouteResponse(200, success_contract({"status": "ok", **_service_metadata()})),
+        lambda _req: RouteResponse(200, success_contract({"status": "ok", **_service_metadata()})),
     )
 
     shell.register(
         "GET",
         "/readyz",
-        lambda: _readiness_response(),
+        lambda _req: _readiness_response(),
     )
 
     shell.register(
         "GET",
         "/v1/config",
-        lambda: RouteResponse(
+        lambda _req: RouteResponse(
             200,
             success_contract(
                 {
@@ -89,20 +146,47 @@ def register_runtime_routes(shell: RuntimeShell) -> None:
     shell.register(
         "GET",
         "/v1/capabilities",
-        lambda: RouteResponse(200, success_contract(_capability_report())),
+        lambda _req: RouteResponse(200, success_contract(_capability_report())),
     )
 
     shell.register(
         "GET",
         "/v1/metadata",
-        lambda: RouteResponse(200, success_contract(_service_metadata())),
+        lambda _req: RouteResponse(200, success_contract(_service_metadata())),
     )
 
     shell.register(
         "GET",
         "/v1/contracts/internal",
-        lambda: RouteResponse(200, success_contract(command_schema_summary())),
+        lambda _req: RouteResponse(200, success_contract(command_schema_summary())),
     )
+
+    shell.register(
+        "POST",
+        "/v1/commands/execute",
+        lambda req: _execute_command(req),
+    )
+
+
+def _execute_command(request: dict) -> RouteResponse:
+    command = request.get("command")
+    payload = request.get("payload")
+
+    if not isinstance(command, str) or not command:
+        return RouteResponse(422, error_contract(ERR_COMMAND_VALIDATION_FAILED, "missing command", 422))
+    if command not in supported_commands():
+        return RouteResponse(422, error_contract(ERR_UNSUPPORTED_COMMAND, f"unsupported command: {command}", 422))
+    if not isinstance(payload, dict):
+        return RouteResponse(422, error_contract(ERR_COMMAND_VALIDATION_FAILED, "payload must be object", 422))
+
+    try:
+        deterministic_result = handle_command(command, payload)
+        orchestrated = _ORCHESTRATOR.execute(deterministic_result)
+        orchestrated["actor_ref"] = _IDENTITY.resolve_actor(request)
+    except ValueError as exc:
+        return RouteResponse(422, error_contract(ERR_COMMAND_PIPELINE_FAILED, str(exc), 422))
+
+    return RouteResponse(200, success_contract(orchestrated))
 
 
 def _readiness_response() -> RouteResponse:

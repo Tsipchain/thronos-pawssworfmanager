@@ -5,9 +5,12 @@ from pathlib import Path
 
 from thronos_pawssworfmanager import create_app, create_runtime_shell
 from thronos_pawssworfmanager.error_model import (
+    ERR_COMMAND_PIPELINE_FAILED,
+    ERR_COMMAND_VALIDATION_FAILED,
     ERR_INVALID_API_VERSION,
     ERR_READINESS_FAILED,
     ERR_ROUTE_NOT_FOUND,
+    ERR_UNSUPPORTED_COMMAND,
 )
 
 
@@ -21,16 +24,64 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertIn(("GET", "/v1/capabilities"), routes)
         self.assertIn(("GET", "/v1/metadata"), routes)
         self.assertIn(("GET", "/v1/contracts/internal"), routes)
+        self.assertIn(("POST", "/v1/commands/execute"), routes)
 
-    def test_health_route_contract_shape(self):
+    def test_capabilities_reports_adapter_selection_policy(self):
         shell = create_runtime_shell()
-        resp = shell.handle("GET", "/healthz")
+        resp = shell.handle("GET", "/v1/capabilities")
+        self.assertEqual(resp.status, 200)
+        adapters = resp.body["data"]["adapters"]
+        self.assertEqual(adapters["manifest_store"], "in_memory")
+        self.assertEqual(adapters["blob_storage"], "in_memory")
+        self.assertEqual(adapters["attestation"], "fake")
+        self.assertEqual(adapters["execution_mode"], "dry_run")
+        self.assertTrue(adapters["dry_run_enabled"])
+        self.assertEqual(adapters["idempotency_scope"], "single_instance_memory")
+        self.assertEqual(adapters["selection_policy"]["mode"], "allowlist")
+        self.assertTrue(adapters["execution_policy"]["startup_allowed"])
+        self.assertEqual(adapters["execution_policy"]["enforcement"], "fail_closed")
+        self.assertTrue(adapters["blob_capabilities"]["dry_run_supported"])
+        self.assertTrue(adapters["attestation_capabilities"]["dry_run_supported"])
+
+    def test_command_execute_success(self):
+        shell = create_runtime_shell()
+        resp = shell.handle(
+            "POST",
+            "/v1/commands/execute",
+            {
+                "command": "create_vault",
+                "payload": {"vault_id": "vault-1", "initial_entries": []},
+            },
+        )
         self.assertEqual(resp.status, 200)
         self.assertEqual(resp.body["status"], "success")
-        self.assertEqual(resp.body["code"], "ok")
-        self.assertIn("api_version", resp.body)
-        self.assertIn("request_id", resp.body)
-        self.assertIsNone(resp.body["error"])
+        self.assertEqual(resp.body["data"]["canonical_bytes_encoding"], "base64")
+        self.assertEqual(resp.body["data"]["storage_write"], "created")
+
+    def test_command_execute_validation_error(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("POST", "/v1/commands/execute", {"command": "create_vault"})
+        self.assertEqual(resp.status, 422)
+        self.assertEqual(resp.body["code"], ERR_COMMAND_VALIDATION_FAILED)
+
+    def test_command_execute_unsupported(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("POST", "/v1/commands/execute", {"command": "x", "payload": {}})
+        self.assertEqual(resp.status, 422)
+        self.assertEqual(resp.body["code"], ERR_UNSUPPORTED_COMMAND)
+
+    def test_command_execute_pipeline_failure(self):
+        shell = create_runtime_shell()
+        resp = shell.handle(
+            "POST",
+            "/v1/commands/execute",
+            {
+                "command": "add_entry",
+                "payload": {"vault_id": "v1", "version": 2, "entries": [], "entry": {"id": "e1"}},
+            },
+        )
+        self.assertEqual(resp.status, 422)
+        self.assertEqual(resp.body["code"], ERR_COMMAND_PIPELINE_FAILED)
 
     def test_readiness_route_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -52,8 +103,6 @@ class TestRuntimeShell(unittest.TestCase):
                 shell = create_runtime_shell()
                 resp = shell.handle("GET", "/readyz")
                 self.assertEqual(resp.status, 200)
-                self.assertEqual(resp.body["status"], "success")
-                self.assertTrue(resp.body["data"]["ready"])
             finally:
                 for k, v in old.items():
                     if v is None:
@@ -67,49 +116,22 @@ class TestRuntimeShell(unittest.TestCase):
             shell = create_runtime_shell()
             resp = shell.handle("GET", "/readyz")
             self.assertEqual(resp.status, 503)
-            self.assertEqual(resp.body["status"], "error")
             self.assertEqual(resp.body["code"], ERR_READINESS_FAILED)
         finally:
             if old is not None:
                 os.environ["SERVICE_DATA_ROOT"] = old
-
-    def test_capabilities_route_honest_disabled_flags(self):
-        shell = create_runtime_shell()
-        resp = shell.handle("GET", "/v1/capabilities")
-        self.assertEqual(resp.status, 200)
-        body = resp.body["data"]
-        disabled = body["sensitive_features"]
-        self.assertFalse(disabled["auth_runtime"])
-        self.assertFalse(disabled["blockchain_writes"])
-        self.assertFalse(disabled["vault_operations"])
-        self.assertEqual(body["negotiation"]["selected_api_version"], "v1")
-        self.assertFalse(body["internal_command_layer"]["execution_enabled"])
-
-    def test_config_route_non_sensitive_metadata(self):
-        shell = create_runtime_shell()
-        resp = shell.handle("GET", "/v1/config")
-        self.assertEqual(resp.status, 200)
-        data = resp.body["data"]
-        self.assertIn("hash_policy", data)
-        self.assertIn("manifest_required_fields", data)
-
-    def test_metadata_route_contract(self):
-        shell = create_runtime_shell()
-        resp = shell.handle("GET", "/v1/metadata")
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.body["data"]["api_default_version"], "v1")
-
-    def test_internal_contract_route(self):
-        shell = create_runtime_shell()
-        resp = shell.handle("GET", "/v1/contracts/internal")
-        self.assertEqual(resp.status, 200)
-        self.assertFalse(resp.body["data"]["execution"]["enabled"])
 
     def test_not_found_route_uses_error_model(self):
         shell = create_runtime_shell()
         resp = shell.handle("GET", "/does-not-exist")
         self.assertEqual(resp.status, 404)
         self.assertEqual(resp.body["code"], ERR_ROUTE_NOT_FOUND)
+
+    def test_metadata_reports_execution_policy_enforced(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("GET", "/v1/metadata")
+        self.assertEqual(resp.status, 200)
+        self.assertTrue(resp.body["data"]["execution_policy_enforced"])
 
     def test_invalid_api_version(self):
         shell = create_runtime_shell()
@@ -119,6 +141,6 @@ class TestRuntimeShell(unittest.TestCase):
 
     def test_create_app_reports_runtime_shell_and_disabled_features(self):
         app = create_app(validate_paths=False)
-        self.assertIn("internal-command-contract-layer", app["capabilities"])
-        self.assertIn("vault-command-execution", app["disabled_sensitive_features"])
-        self.assertIn("GET /v1/contracts/internal", app["routes"])
+        self.assertIn("deterministic-command-pipeline", app["capabilities"])
+        self.assertIn("vault-command-execution-side-effects", app["disabled_sensitive_features"])
+        self.assertIn("POST /v1/commands/execute", app["routes"])

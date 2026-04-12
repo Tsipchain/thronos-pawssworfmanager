@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import tempfile
@@ -8,18 +9,24 @@ from thronos_pawssworfmanager.http_service import wsgi_app
 
 
 class TestHttpService(unittest.TestCase):
-    def _call(self, method: str, path: str):
+    def _call(self, method: str, path: str, payload: dict | None = None):
         captured = {}
 
         def start_response(status, headers):
             captured["status"] = status
             captured["headers"] = headers
 
+        raw = b""
+        if payload is not None:
+            raw = json.dumps(payload).encode("utf-8")
+
         body = b"".join(
             wsgi_app(
                 {
                     "REQUEST_METHOD": method,
                     "PATH_INFO": path,
+                    "CONTENT_LENGTH": str(len(raw)),
+                    "wsgi.input": io.BytesIO(raw),
                 },
                 start_response,
             )
@@ -36,6 +43,15 @@ class TestHttpService(unittest.TestCase):
         res = self._call("GET", "/v1/metadata")
         self.assertTrue(res["status"].startswith("200"))
         self.assertEqual(res["body"]["data"]["api_default_version"], "v1")
+
+    def test_command_execute_post(self):
+        res = self._call(
+            "POST",
+            "/v1/commands/execute",
+            {"command": "create_vault", "payload": {"vault_id": "v-1", "initial_entries": []}},
+        )
+        self.assertTrue(res["status"].startswith("200"))
+        self.assertEqual(res["body"]["data"]["canonical_bytes_encoding"], "base64")
 
     def test_readyz(self):
         with tempfile.TemporaryDirectory() as tmp:

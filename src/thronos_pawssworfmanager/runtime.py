@@ -1,4 +1,4 @@
-"""Runtime skeleton for M2 without sensitive feature behavior."""
+"""Runtime skeleton without sensitive feature behavior."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class RouteResponse:
     body: dict
 
 
-Handler = Callable[[], RouteResponse]
+Handler = Callable[[dict], RouteResponse]
 
 
 class RuntimeShell:
@@ -29,7 +29,8 @@ class RuntimeShell:
     def routes(self) -> list[tuple[str, str]]:
         return sorted(self._routes.keys())
 
-    def handle(self, method: str, path: str) -> RouteResponse:
+    def handle(self, method: str, path: str, request: dict | None = None) -> RouteResponse:
+        request = request or {}
         if is_versioned_api_path(path):
             version = extract_version(path)
             if version is not None and not is_supported_version(version):
@@ -46,4 +47,4 @@ class RuntimeShell:
         handler = self._routes.get(key)
         if handler is None:
             return RouteResponse(404, error_contract(ERR_ROUTE_NOT_FOUND, f"route not found: {path}", 404))
-        return handler()
+        return handler(request)
