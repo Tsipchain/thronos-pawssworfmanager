@@ -1,0 +1,15 @@
+[
+  {
+    "name": "hash_reproducible",
+    "manifest": {"vault_id": "v1", "entries": [{"site": "a"}], "version": 1}
+  },
+  {
+    "name": "hash_sensitivity",
+    "manifest": {"vault_id": "v1", "entries": [{"site": "a"}], "version": 1},
+    "mutated_manifest": {"vault_id": "v1", "entries": [{"site": "b"}], "version": 1}
+  },
+  {
+    "name": "genesis_hash",
+    "manifest": {"vault_id": "gen", "entries": [], "version": 1}
+  }
+]
