@@ -1,0 +1,10 @@
+[
+  {
+    "name": "minimum_accepted",
+    "params": {"memory_kib": 65536, "time_cost": 3, "parallelism": 1, "salt_len": 16, "key_len": 32, "profile_version": "argon2id-v1"}
+  },
+  {
+    "name": "boundary_accepted",
+    "params": {"memory_kib": 65536, "time_cost": 4, "parallelism": 8, "salt_len": 16, "key_len": 32, "profile_version": "argon2id-v1"}
+  }
+]

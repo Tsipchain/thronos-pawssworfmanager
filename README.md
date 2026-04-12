@@ -1,77 +1,80 @@
 # Thronos Pawssworf Manager
 
-Security-first greenfield service for:
+Thronos Pawssworf Manager is an implementation-focused foundation for a service that is both:
 
-1. **Self-custody encrypted vault storage**
-2. **Thronos-native secret attestation**
+1. a **self-custody encrypted vault**, and
+2. a **Thronos-native secret attestation service**.
 
-This repository currently contains only architecture and API drafts plus a minimal service scaffold. It does **not** implement full product functionality.
+This repository is intentionally in a design/foundation stage. It does **not** ship end-user features yet.
 
-## Purpose
+## Product purpose
 
-Build a backend service that accepts and stores **encrypted vault blobs** off-chain while anchoring a **deterministic integrity hash** of vault state on Thronos for tamper evidence and version attestation.
-
-## Non-goals (for this phase and initial product scope)
-
-- UI implementation (web/mobile/browser extension)
-- Password UX features (generator, autofill, convenience flows)
-- Secret sharing / team collaboration
-- Account recovery implementation
-- Storing plaintext secrets server-side
-- Storing passwords or raw secrets on-chain
-- Marketing or comparative security claims
+Provide a backend protocol/service boundary where users can persist encrypted vault state off-chain while anchoring deterministic integrity/version commitments on Thronos, so clients can independently verify tamper evidence without exposing plaintext secrets.
 
 ## Trust model
 
-- User devices are trusted to generate and hold plaintext secrets and key material.
-- The service is treated as an **untrusted ciphertext host** plus attestation relay.
-- Thronos chain is treated as a public integrity ledger for state commitments, not secret storage.
-- Operators may observe metadata (timestamps, object sizes, vault identifiers) but cannot decrypt payloads without user-controlled keys.
+- **Client is cryptographic trust anchor** for plaintext handling and key operations.
+- **Server is untrusted for confidentiality** and trusted only for availability/integrity workflow execution.
+- **Thronos chain is integrity witness**, not a secrets datastore.
+- **Operators and infrastructure may see metadata** (timing, size, vault identifiers) but must never see plaintext secrets or plaintext master keys.
 
-## Encryption model
+## Self-custody model
 
-- Encryption/decryption happens client-side.
-- **Master key never leaves user side in plaintext.**
-- Server stores only encrypted blobs and non-sensitive metadata.
-- Envelope/key-derivation specifics remain open (see `docs/open-decisions.md`).
+- Master key generation and plaintext handling happen client-side.
+- Master key plaintext never leaves the user side.
+- Server receives ciphertext and commitment metadata only.
+- Any future recovery or multi-device portability must preserve user key sovereignty (currently unresolved and out of scope for implementation).
 
-## Attestation model
+## Off-chain vs on-chain boundaries
 
-- Each vault update produces a deterministic canonical vault state hash (`vault_state_hash`).
-- Only integrity/version commitments are attested on-chain (e.g., hash, version, timestamp, actor id / key fingerprint).
-- On-chain data enables tamper evidence and historical verification of committed states.
+### Off-chain (service-controlled storage)
 
-## Off-chain vs on-chain
+- Encrypted vault blobs (opaque ciphertext)
+- Blob metadata and version index
+- Attestation job status / tx linkage
+- Audit metadata (non-secret)
 
-### Off-chain (service storage)
+### On-chain (Thronos attestations only)
 
-- Encrypted vault blobs (ciphertext)
-- Blob metadata (vault id, version, hash references, timestamps)
-- Optional encrypted key-wrapping material (if enabled later)
-
-### On-chain (Thronos attestation)
-
-- `vault_id` reference
-- `vault_state_hash` (deterministic commitment)
-- `version` / monotonic sequence
+- `vault_id` reference (opaque)
+- `vault_state_hash` commitment
+- Version/sequence commitment
 - Attestation transaction metadata
 
-### Never stored on-chain
+### Explicitly never on-chain
 
-- Plaintext passwords/secrets
+- Plaintext passwords or secrets
 - Raw decrypted vault entries
 - User master keys
+- Decryption-enabling plaintext material
 
-## Unresolved decisions
+## Non-goals
 
-See `docs/open-decisions.md` for current design choices that remain intentionally unresolved.
+This pass and current scope explicitly exclude:
 
-## Repository layout (current)
+- UI (web, desktop, mobile)
+- Browser extension
+- Mobile app
+- Password-generation UX and convenience features
+- Secret sharing/collaboration flows
+- Recovery implementation
+- Storage engine implementation details
+- Blockchain write logic implementation
+- Authentication/authorization implementation
+- Marketing claims
+
+## Foundation documents
 
 - `docs/architecture.md`
 - `docs/threat-model.md`
 - `docs/data-model.md`
 - `docs/api-draft.md`
+- `docs/crypto-model.md`
+- `docs/attestation-model.md`
+- `docs/build-boundary.md`
 - `docs/open-decisions.md`
-- `.env.example`
-- `src/thronos_pawssworfmanager/` (minimal scaffold only)
+- `docs/implementation-plan.md`
+
+## Current status
+
+The repository is prepared for disciplined implementation planning and sequencing, not full product delivery.
