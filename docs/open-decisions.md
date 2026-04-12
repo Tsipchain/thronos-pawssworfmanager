@@ -1,169 +1,143 @@
 # Open Decisions (Engineer-Reviewable Matrix)
 
-This document converts open design questions into review-ready decision entries with recommended defaults.
+This document tracks review-ready decisions and their freeze state.
+
+Resolution state definitions:
+- **Open:** no proposal yet.
+- **Proposed:** recommended default selected, pending review approval.
+- **Frozen:** approved and locked for implementation scope.
 
 Blocking level definitions:
-- **High**: must be resolved before related implementation begins.
-- **Medium**: may begin with stubs/interfaces, but must be resolved before integration hardening.
-- **Low**: can be deferred to later hardening phases.
+- **High:** must be resolved before related implementation begins.
+- **Medium:** may begin with stubs/interfaces, but must be resolved before integration hardening.
+- **Low:** can be deferred to later hardening phases.
+
+## Current resolution snapshot
+
+| OD | Decision area | Blocking level | Resolution state | Recommended default |
+|---|---|---|---|---|
+| OD-01 | Canonical encoding | High | **Proposed (Phase 1 Freeze Candidate)** | JCS canonical JSON |
+| OD-02 | Encryption profile | High | **Proposed (Phase 1 Freeze Candidate)** | XChaCha20-Poly1305 |
+| OD-03 | KDF policy | High | **Proposed (Phase 1 Freeze Candidate)** | Argon2id |
+| OD-04 | Version commitment structure | High | **Proposed (Phase 1 Freeze Candidate)** | Manifest hash + parent hash + monotonic version |
+| OD-05 | Attestation submission strategy | Medium | Open | Async queue/worker |
+| OD-06 | Thronos contract/event shape | Medium | Open | Event-only log (v1) |
+| OD-07 | Identity binding for writes | High (auth scope) | Open | Hybrid token + wallet signature |
+| OD-08 | Metadata leakage minimization | Low | Open | No padding in v1 |
+| OD-09 | Deletion semantics | Medium (storage scope) | Open | Tombstone + retention policy |
+| OD-10 | Verification responsibility split | Medium | Open | Server endpoint + independent client verification capability |
+| OD-11 | Multi-device key portability | Low | Open | Client export/import only |
 
 ---
 
 ## OD-01 — Canonical state encoding for `vault_state_hash`
-
 - **Problem statement:** We need one deterministic byte representation of logical vault state so independent clients always produce the same hash.
-- **Allowed options:**
-  1. JCS canonical JSON
-  2. Protobuf canonical bytes
-  3. Custom merkleized canonical format
+- **Allowed options:** JCS canonical JSON; protobuf canonical bytes; custom merkleized canonical format.
 - **Recommended default:** **JCS canonical JSON (v1)**.
-- **Rationale:** Fastest path to human-auditable, language-agnostic deterministic hashing with lower implementation complexity for first secure baseline.
-- **Tradeoffs:**
-  - Pros: readability, easier cross-language debugging.
-  - Cons: potential performance overhead and stricter canonicalization pitfalls if not rigorously tested.
-- **Implementation impact:** Locks hash input contract used by clients, API metadata validation, and attestation payload generation.
+- **Proposed resolution state:** **Proposed (Phase 1 Freeze Candidate)**.
+- **Rationale:** Human-auditable, language-agnostic deterministic encoding with lower early-phase complexity.
+- **Tradeoffs:** Easier interoperability/debugging vs potential canonicalization edge-case burden.
+- **Implementation impact:** Locks hash input contract used by clients, server validation, and attestation payload generation.
 - **Blocking level:** **High**.
 
 ## OD-02 — Symmetric encryption profile for vault blobs
-
-- **Problem statement:** We need one baseline AEAD cipher profile for client-side encryption compatibility and security guarantees.
-- **Allowed options:**
-  1. AES-256-GCM
-  2. XChaCha20-Poly1305
+- **Problem statement:** We need one baseline AEAD cipher profile for compatible and secure client-side encryption.
+- **Allowed options:** AES-256-GCM; XChaCha20-Poly1305.
 - **Recommended default:** **XChaCha20-Poly1305 (v1 profile)**.
-- **Rationale:** Strong nonce-misuse resilience characteristics for distributed clients and simple safe-default ergonomics.
-- **Tradeoffs:**
-  - Pros: safer nonce handling margin, modern misuse-resilience posture.
-  - Cons: hardware acceleration may be less ubiquitous than AES on some platforms.
-- **Implementation impact:** Defines ciphertext format envelope, metadata schema expectations, and compatibility requirements for future SDKs.
+- **Proposed resolution state:** **Proposed (Phase 1 Freeze Candidate)**.
+- **Rationale:** Strong nonce-safety posture for distributed clients and safe-default usage patterns.
+- **Tradeoffs:** Better misuse resistance margin vs possible lower hardware acceleration prevalence.
+- **Implementation impact:** Defines ciphertext envelope metadata and SDK compatibility contract.
 - **Blocking level:** **High**.
 
 ## OD-03 — KDF and parameter policy
-
-- **Problem statement:** We need a standard key derivation baseline to resist offline guessing while remaining deployable on common client hardware.
-- **Allowed options:**
-  1. Argon2id baseline
-  2. scrypt baseline
-  3. PBKDF2 compatibility fallback only
-- **Recommended default:** **Argon2id baseline with documented minimum memory/time parameters**.
-- **Rationale:** Best-practice memory-hard defense profile for modern password-derived key workflows.
-- **Tradeoffs:**
-  - Pros: stronger offline attack cost amplification.
-  - Cons: tuning burden across low-power devices.
-- **Implementation impact:** Determines key-derivation metadata fields and client compatibility policy.
+- **Problem statement:** We need a key-derivation baseline that raises offline attack cost while remaining deployable.
+- **Allowed options:** Argon2id baseline; scrypt baseline; PBKDF2 compatibility fallback only.
+- **Recommended default:** **Argon2id with documented minimum memory/time parameters**.
+- **Proposed resolution state:** **Proposed (Phase 1 Freeze Candidate)**.
+- **Rationale:** Memory-hard profile aligned with current password-based key derivation best practice.
+- **Tradeoffs:** Stronger brute-force resistance vs parameter tuning complexity for low-power devices.
+- **Implementation impact:** Defines KDF metadata contract and compatibility policy.
 - **Blocking level:** **High**.
 
 ## OD-04 — Version commitment structure
-
-- **Problem statement:** We need to detect rollback/fork scenarios in version history with clear deterministic linkage.
-- **Allowed options:**
-  1. Monotonic `version + vault_state_hash` only
-  2. Hash-chain (`parent_hash` linkage per version)
-- **Recommended default:** **Hash-chain linkage (`parent_hash`) + monotonic version**.
-- **Rationale:** Stronger tamper and fork evidence with minimal additional metadata.
-- **Tradeoffs:**
-  - Pros: explicit historical continuity proofs.
-  - Cons: slightly more complex conflict/recovery handling.
-- **Implementation impact:** Affects data model fields, verification routines, and attestation payload semantics.
+- **Problem statement:** We need deterministic continuity checks that detect rollback and forked histories.
+- **Allowed options:** Monotonic `version + vault_state_hash` only; hash-linked chain with parent reference.
+- **Recommended default:** **Manifest hash + parent hash + monotonic version**.
+- **Proposed resolution state:** **Proposed (Phase 1 Freeze Candidate)**.
+- **Rationale:** Stronger continuity/tamper evidence with modest metadata overhead.
+- **Tradeoffs:** Better fork/rollback detection vs slightly higher state-management complexity.
+- **Implementation impact:** Affects data schema, verification logic, and attestation payload shape.
 - **Blocking level:** **High**.
 
 ## OD-05 — Attestation submission strategy
-
-- **Problem statement:** We need to define whether attestation happens inline with write requests or asynchronously.
-- **Allowed options:**
-  1. Synchronous submission in write path
-  2. Async queue/worker submission
+- **Problem statement:** Decide inline vs asynchronous attestation submission behavior.
+- **Allowed options:** Synchronous submission in write path; async queue/worker submission.
 - **Recommended default:** **Async queue/worker with explicit `pending/confirmed/failed` states**.
-- **Rationale:** Better reliability and latency isolation from chain/RPC variability.
-- **Tradeoffs:**
-  - Pros: decouples API latency from chain conditions.
-  - Cons: introduces eventual consistency complexity.
-- **Implementation impact:** Requires attestation lifecycle state model and retry policy design.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Better API latency isolation and retry resilience.
+- **Tradeoffs:** Operational resilience vs eventual consistency complexity.
+- **Implementation impact:** Requires lifecycle state model and retry/error semantics.
 - **Blocking level:** **Medium**.
 
 ## OD-06 — Thronos contract/event shape
-
-- **Problem statement:** We need a stable on-chain commitment schema for long-term verification compatibility.
-- **Allowed options:**
-  1. Event-only attestation log
-  2. Stateful contract tracking latest version/hash
+- **Problem statement:** Choose stable commitment schema for on-chain attestations.
+- **Allowed options:** Event-only attestation log; stateful latest-version contract.
 - **Recommended default:** **Event-only log for v1**.
-- **Rationale:** Minimal chain footprint and lower contract-state complexity while preserving auditability.
-- **Tradeoffs:**
-  - Pros: simpler chain-side logic and upgrade path.
-  - Cons: client/server verification queries may need more indexing work.
-- **Implementation impact:** Defines attestation adapter payload and verification index expectations.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Lower chain complexity and simpler early integration path.
+- **Tradeoffs:** Simpler contract behavior vs more indexing burden off-chain.
+- **Implementation impact:** Defines attestation adapter payload and verification index requirements.
 - **Blocking level:** **Medium**.
 
 ## OD-07 — Identity binding for write operations
-
-- **Problem statement:** We need a trust-minimized but practical authorization binding model for vault mutations.
-- **Allowed options:**
-  1. Wallet signature only
-  2. Hybrid service token + wallet signature
+- **Problem statement:** Define practical authorization binding for vault mutations.
+- **Allowed options:** Wallet signature only; hybrid token + wallet signature.
 - **Recommended default:** **Hybrid token + wallet signature for high-risk mutations**.
-- **Rationale:** Balances operational control (session handling/revocation) with cryptographic user intent proof.
-- **Tradeoffs:**
-  - Pros: stronger layered control and revocation ergonomics.
-  - Cons: more moving parts and auth complexity.
-- **Implementation impact:** Impacts request signing contract, auth middleware design, and audit model.
-- **Blocking level:** **High (for auth implementation only)**.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Balances session control/revocation with cryptographic intent proof.
+- **Tradeoffs:** Layered control vs increased auth complexity.
+- **Implementation impact:** Shapes request auth contract and audit semantics.
+- **Blocking level:** **High (for auth scope)**.
 
 ## OD-08 — Metadata leakage minimization
-
-- **Problem statement:** We need a posture on side-channel leakage through ciphertext size/timing patterns.
-- **Allowed options:**
-  1. No padding (documented leakage)
-  2. Fixed-size bucket padding
-  3. Batch windows / delayed commit patterns
-- **Recommended default:** **No padding in v1 with explicit leakage documentation and future optional padding mode**.
-- **Rationale:** Keeps initial system simple while making leakage explicit and reviewable.
-- **Tradeoffs:**
-  - Pros: lower complexity and cost.
-  - Cons: traffic analysis risk remains.
-- **Implementation impact:** Influences storage format policy and future privacy hardening roadmap.
+- **Problem statement:** Define stance on size/timing side-channel leakage.
+- **Allowed options:** No padding; fixed-size bucket padding; batch windows.
+- **Recommended default:** **No padding in v1, with explicit documented leakage**.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Keeps early system simple and reviewable.
+- **Tradeoffs:** Lower complexity vs known traffic-analysis leakage.
+- **Implementation impact:** Informs future privacy hardening roadmap.
 - **Blocking level:** **Low**.
 
 ## OD-09 — Deletion semantics for ciphertext
-
-- **Problem statement:** We need clear deletion behavior that balances compliance, auditability, and integrity history.
-- **Allowed options:**
-  1. Hard delete
-  2. Tombstone + retention policy
-- **Recommended default:** **Tombstone metadata + retention policy; never rewrite prior on-chain attestations**.
-- **Rationale:** Preserves audit continuity while allowing controlled data lifecycle operations.
-- **Tradeoffs:**
-  - Pros: better forensic/compliance posture.
-  - Cons: storage and policy complexity.
-- **Implementation impact:** Affects storage lifecycle state machine and legal/compliance docs.
-- **Blocking level:** **Medium (for storage implementation)**.
+- **Problem statement:** Define deletion behavior balancing compliance, auditability, and integrity history.
+- **Allowed options:** Hard delete; tombstone + retention policy.
+- **Recommended default:** **Tombstone metadata + retention policy; preserve historical attestation references**.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Maintains audit continuity while allowing lifecycle control.
+- **Tradeoffs:** Better compliance posture vs operational/storage complexity.
+- **Implementation impact:** Defines lifecycle state machine and policy controls.
+- **Blocking level:** **Medium (for storage scope)**.
 
 ## OD-10 — Verification responsibility split
-
-- **Problem statement:** We need to define minimum trust posture for validating attested state continuity.
-- **Allowed options:**
-  1. Server verification endpoint only
-  2. Mandatory independent client verification path
-- **Recommended default:** **Server endpoint + mandatory independent client verification capability in protocol docs**.
-- **Rationale:** Provides practical interoperability while preserving trust-minimized validation path.
-- **Tradeoffs:**
-  - Pros: compatibility for thin clients and stronger independent assurance.
-  - Cons: requires additional client/SDK verification logic over time.
-- **Implementation impact:** Shapes API guarantees and SDK/protocol conformance requirements.
+- **Problem statement:** Define minimum trust posture for attestation verification.
+- **Allowed options:** Server verification endpoint only; mandatory independent client verification capability.
+- **Recommended default:** **Server endpoint + independent client verification capability**.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Practical interoperability plus trust-minimized verification path.
+- **Tradeoffs:** Better assurance vs additional SDK/client complexity.
+- **Implementation impact:** Affects verification API guarantees and client conformance requirements.
 - **Blocking level:** **Medium**.
 
 ## OD-11 — Multi-device key portability boundary
-
-- **Problem statement:** We need a policy for multi-device use that does not violate self-custody assumptions.
-- **Allowed options:**
-  1. Client export/import only
-  2. Optional encrypted key-wrap artifact
+- **Problem statement:** Define multi-device portability while preserving self-custody assumptions.
+- **Allowed options:** Client export/import only; optional encrypted key-wrap artifact.
 - **Recommended default:** **Client export/import only in early phases**.
-- **Rationale:** Minimizes server-side key-risk surface until stronger threat-reviewed design is complete.
-- **Tradeoffs:**
-  - Pros: strict self-custody posture.
-  - Cons: weaker usability for multi-device onboarding.
-- **Implementation impact:** Defers server-managed portability features and keeps custody boundary strict.
+- **Proposed resolution state:** **Open**.
+- **Rationale:** Minimizes key-risk surface until stronger threat-reviewed portability design exists.
+- **Tradeoffs:** Strong custody boundary vs reduced onboarding convenience.
+- **Implementation impact:** Defers server-assisted portability mechanisms.
 - **Blocking level:** **Low**.
 
 ---
@@ -182,10 +156,8 @@ Blocking level definitions:
 ### Must be resolved before any auth implementation
 - **OD-07**
 
-## Phase-1 true blockers
-
-For Phase 1 deterministic foundation work, the true blockers are:
+## Phase 1 true blockers
 - **OD-01** canonical encoding
-- **OD-02** AEAD baseline
+- **OD-02** encryption profile
 - **OD-03** KDF policy
 - **OD-04** version commitment structure

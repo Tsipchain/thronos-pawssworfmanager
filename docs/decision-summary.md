@@ -1,24 +1,29 @@
-# Decision Summary (Review Prep)
+# Decision Summary (Phase 1 Freeze Prep)
 
-This summary is intended for engineering/security review meetings to accelerate closure of open decisions.
+## A) Proposed defaults (Phase 1 blocker candidates)
 
-## Recommended defaults per OD
+These are proposed for freeze approval before Phase 1 implementation starts.
 
-| OD | Recommended default | Blocking level |
+| OD | Proposed default | Freeze intent |
 |---|---|---|
-| OD-01 | JCS canonical JSON for `vault_state_hash` input bytes | High |
-| OD-02 | XChaCha20-Poly1305 encryption profile | High |
-| OD-03 | Argon2id with documented minimum parameters | High |
-| OD-04 | Hash-chain with `parent_hash` + monotonic version | High |
-| OD-05 | Async attestation submission with explicit lifecycle states | Medium |
-| OD-06 | Event-only on-chain attestation log for v1 | Medium |
-| OD-07 | Hybrid token + wallet signature for mutation auth | High (auth scope) |
-| OD-08 | No padding in v1; document metadata leakage | Low |
-| OD-09 | Tombstone + retention policy for deletions | Medium (storage scope) |
-| OD-10 | Server verification endpoint + mandatory client-verification capability | Medium |
-| OD-11 | Client export/import only for multi-device portability | Low |
+| OD-01 | JCS canonical JSON for canonical hash input bytes | Freeze candidate |
+| OD-02 | XChaCha20-Poly1305 encryption profile | Freeze candidate |
+| OD-03 | Argon2id with documented minimum parameters | Freeze candidate |
+| OD-04 | Manifest hash + parent hash + monotonic version | Freeze candidate |
 
-## Resolution gates by implementation domain
+## B) Still-open decisions (non-blocking for Phase 1 start)
+
+| OD | Current recommended direction | Blocking scope |
+|---|---|---|
+| OD-05 | Async attestation submission lifecycle | Attestation implementation |
+| OD-06 | Event-only on-chain attestation log (v1) | Attestation implementation |
+| OD-07 | Hybrid token + wallet signature | Auth implementation |
+| OD-08 | No padding in v1; document leakage | Privacy hardening |
+| OD-09 | Tombstone + retention policy | Storage implementation |
+| OD-10 | Server endpoint + independent client verification capability | Attestation verification implementation |
+| OD-11 | Client export/import only | Multi-device portability hardening |
+
+## C) Resolution gates by implementation domain
 
 ### Before any crypto implementation
 - OD-01, OD-02, OD-03, OD-04
@@ -32,18 +37,17 @@ This summary is intended for engineering/security review meetings to accelerate 
 ### Before any auth implementation
 - OD-07
 
-## True blockers for Phase 1
+## D) True blockers for Phase 1
 
-Phase 1 should not begin implementation work until these are closed:
 - OD-01 canonical encoding
 - OD-02 encryption profile
-- OD-03 KDF profile
+- OD-03 KDF policy
 - OD-04 version commitment structure
 
-## Review checklist for closure
+## E) Approval checklist for freeze
 
-A decision is considered review-closed when:
-1. selected default is approved by engineering + security reviewers,
-2. rejected alternatives and rationale are recorded,
-3. impact on architecture/data/API docs is propagated,
-4. acceptance tests are identified for implementation phases.
+A blocker is freeze-approved when:
+1. engineering + security sign off on selected default,
+2. alternatives and rejection rationale are documented,
+3. impacts are propagated to architecture/data/API docs,
+4. acceptance tests are defined for subsequent implementation work.
