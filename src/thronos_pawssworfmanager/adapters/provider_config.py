@@ -18,6 +18,7 @@ _BLOB_CLASSIFICATION = {
     "bucket": "public",
     "region": "public",
     "endpoint_url": "public",
+    "local_root_path": "public",
     "access_key_ref": "sensitive_ref",
     "secret_key_ref": "sensitive_ref",
     "access_key_raw": "forbidden_raw",
@@ -52,6 +53,7 @@ class BlobProviderConfig:
     bucket: str | None
     region: str | None
     endpoint_url: str | None
+    local_root_path: str | None
     access_key_ref: str | None
     secret_key_ref: str | None
 
@@ -74,7 +76,10 @@ class ProviderConfigBoundary:
 
     def validate_completeness(self) -> None:
         # Required when real-like backends are selected even in dry-run, to verify shape.
-        if self.blob.backend != "in_memory":
+        if self.blob.backend == "local_fs":
+            if not self.blob.local_root_path:
+                raise ValueError("incomplete_blob_provider_config:local_root_path")
+        elif self.blob.backend != "in_memory":
             missing = [f for f in ("provider", "bucket", "region") if not getattr(self.blob, f)]
             if missing:
                 raise ValueError(f"incomplete_blob_provider_config:{','.join(missing)}")
@@ -90,6 +95,7 @@ class ProviderConfigBoundary:
                 self.blob.bucket,
                 self.blob.region,
                 self.blob.endpoint_url,
+                self.blob.local_root_path,
                 self.blob.access_key_ref,
                 self.blob.secret_key_ref,
             ]
@@ -132,6 +138,7 @@ class ProviderConfigBoundary:
                 "bucket": self.blob.bucket,
                 "region": self.blob.region,
                 "endpoint_url": self.blob.endpoint_url,
+                "local_root_path": self.blob.local_root_path,
                 "access_key_ref": _redact_ref(self.blob.access_key_ref),
                 "secret_key_ref": _redact_ref(self.blob.secret_key_ref),
             },
@@ -161,6 +168,7 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
         bucket=env.get("BLOB_BUCKET"),
         region=env.get("BLOB_REGION"),
         endpoint_url=env.get("BLOB_ENDPOINT_URL"),
+        local_root_path=env.get("BLOB_LOCAL_ROOT_PATH"),
         access_key_ref=env.get("BLOB_ACCESS_KEY_REF"),
         secret_key_ref=env.get("BLOB_SECRET_KEY_REF"),
     )
@@ -178,7 +186,7 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
         blob=blob,
         attestation=attestation,
         required_for_future_execute={
-            "blob": ("provider", "bucket", "region", "access_key_ref", "secret_key_ref"),
+            "blob": ("provider", "bucket", "region", "local_root_path", "access_key_ref", "secret_key_ref"),
             "attestation": ("rpc_url", "chain_id", "contract_address", "signer_key_ref"),
         },
     )

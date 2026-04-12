@@ -1,7 +1,7 @@
 import unittest
 
 from thronos_pawssworfmanager.adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
-from thronos_pawssworfmanager.adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage
+from thronos_pawssworfmanager.adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage, LocalFileBlobStorage
 from thronos_pawssworfmanager.adapters.identity import StaticIdentity
 from thronos_pawssworfmanager.adapters.manifest_store import InMemoryManifestStore
 
@@ -23,6 +23,16 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(caps["backend"], "s3")
         self.assertTrue(caps["dry_run_supported"])
         self.assertFalse(caps["exec_enabled"])
+
+
+    def test_blob_storage_local_fs_real_write(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            s = LocalFileBlobStorage(tmp, exec_enabled=True)
+            s.put_blob("b2", b"xyz")
+            self.assertEqual(s.get_blob("b2"), b"xyz")
+            s.delete_blob("b2")
 
     def test_manifest_store_in_memory(self):
         s = InMemoryManifestStore()

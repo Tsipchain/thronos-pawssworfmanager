@@ -1,6 +1,9 @@
+import base64
+import tempfile
 import unittest
 
 from thronos_pawssworfmanager.adapters.attestation import FakeAttestationAdapter
+from thronos_pawssworfmanager.adapters.blob_storage import LocalFileBlobStorage
 from thronos_pawssworfmanager.adapters.manifest_store import InMemoryManifestStore
 from thronos_pawssworfmanager.services.orchestrator import CommandOrchestrator
 from thronos_pawssworfmanager.services.retry_semantics import RetryPolicy
@@ -39,6 +42,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(out["manifest_hash"], "abcd1234")
         self.assertTrue(out["attestation_id"].startswith("att_"))
         self.assertEqual(out["storage_write"], "created")
+        self.assertEqual(out["blob_receipt"]["status"], "not_configured")
         self.assertEqual(out["persistence_receipt"]["operation"], "manifest_persist")
         self.assertEqual(out["attestation_receipt"]["operation"], "attestation_submit")
         self.assertEqual(store.get_manifest("abcd1234")["vault_id"], "v1")
@@ -62,6 +66,43 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(b["storage_write"], "duplicate")
         self.assertEqual(b["persistence_receipt"]["idempotency_scope"], "single_instance_memory")
         self.assertEqual(store.get_manifest("samehash")["version"], 1)
+
+    def test_blob_write_skipped_when_execution_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryManifestStore()
+            att = FakeAttestationAdapter()
+            blob = LocalFileBlobStorage(tmp, exec_enabled=False)
+            orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=False)
+            payload = base64.b64encode(b"hello").decode("utf-8")
+            out = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": "h1",
+                    "chain_node": {"version": 1, "manifest_hash": "h1", "parent_hash": None},
+                }
+            )
+            self.assertEqual(out["blob_receipt"]["status"], "skipped_gate")
+
+    def test_blob_write_occurs_when_execution_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryManifestStore()
+            att = FakeAttestationAdapter()
+            blob = LocalFileBlobStorage(tmp, exec_enabled=True)
+            orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
+            payload = base64.b64encode(b"hello").decode("utf-8")
+            out = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": "h2",
+                    "chain_node": {"version": 1, "manifest_hash": "h2", "parent_hash": None},
+                }
+            )
+            self.assertEqual(out["blob_receipt"]["status"], "written")
+            self.assertEqual(blob.get_blob("h2"), b"hello")
 
     def test_orchestrator_retries_transient_attestation_failure(self):
         store = InMemoryManifestStore()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
-from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage
+from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage, LocalFileBlobStorage
 from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
 from .adapters.execution_gating import evaluate_execution_gates
 from .adapters.identity import StaticIdentity
@@ -42,14 +42,18 @@ _EXECUTION_GATES = evaluate_execution_gates(
 if _ENABLE_REAL_EXECUTION and not _EXECUTION_GATES.execution_enabled:
     raise ValueError(f"real_execution_gate_denied:{','.join(_EXECUTION_GATES.denial_reasons)}")
 _MANIFEST_STORE = InMemoryManifestStore()
-_BLOB_STORAGE = (
-    InMemoryBlobStorage()
-    if _ADAPTER_CONFIG.blob_storage_backend == "in_memory"
-    else DryRunBlobStorageProvider(
+if _ADAPTER_CONFIG.blob_storage_backend == "in_memory":
+    _BLOB_STORAGE = InMemoryBlobStorage()
+elif _ADAPTER_CONFIG.blob_storage_backend == "local_fs":
+    _local_root = _PROVIDER_CONFIG.blob.local_root_path
+    if not _local_root:
+        raise ValueError("blob_local_root_required")
+    _BLOB_STORAGE = LocalFileBlobStorage(_local_root, exec_enabled=_EXECUTION_GATES.execution_enabled)
+else:
+    _BLOB_STORAGE = DryRunBlobStorageProvider(
         _ADAPTER_CONFIG.blob_storage_backend,
         exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
     )
-)
 _ATTESTATION = (
     FakeAttestationAdapter()
     if _ADAPTER_CONFIG.attestation_backend == "fake"
@@ -63,9 +67,12 @@ _IDENTITY = StaticIdentity()
 _ORCHESTRATOR = CommandOrchestrator(
     _MANIFEST_STORE,
     _ATTESTATION,
+    blob_storage=_BLOB_STORAGE,
     manifest_backend=_ADAPTER_CONFIG.manifest_store_backend,
+    blob_backend=_ADAPTER_CONFIG.blob_storage_backend,
     attestation_backend=_ADAPTER_CONFIG.attestation_backend,
     idempotency_scope=_ADAPTER_CONFIG.idempotency_scope,
+    execution_enabled=_EXECUTION_GATES.execution_enabled,
 )
 
 
@@ -121,7 +128,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m7-controlled-real-execution-gated",
+        "phase": "m8-first-real-blob-adapter-gated",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],

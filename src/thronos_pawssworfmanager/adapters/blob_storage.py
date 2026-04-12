@@ -1,7 +1,8 @@
-"""Blob storage adapter contracts with dry-run-capable provider stubs."""
+"""Blob storage adapter contracts with dry-run and local filesystem implementations."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 
@@ -38,11 +39,7 @@ class InMemoryBlobStorage:
 
 
 class DryRunBlobStorageProvider:
-    """Provider-shaped adapter for future real backends.
-
-    This class intentionally never performs real writes. It only simulates
-    provider call paths and errors for integration dry-runs.
-    """
+    """Provider-shaped adapter for future cloud backends (simulated only)."""
 
     def __init__(self, backend: str, exec_enabled: bool = False) -> None:
         self.backend = backend
@@ -66,4 +63,38 @@ class DryRunBlobStorageProvider:
             "provider_family": "object_storage",
             "dry_run_supported": True,
             "exec_enabled": self.exec_enabled,
+        }
+
+
+class LocalFileBlobStorage:
+    """First real blob adapter (filesystem-backed), strictly gate-controlled."""
+
+    def __init__(self, root_path: str, exec_enabled: bool) -> None:
+        self.root = Path(root_path)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.exec_enabled = exec_enabled
+
+    def _path_for(self, blob_id: str) -> Path:
+        return self.root / f"{blob_id}.blob"
+
+    def put_blob(self, blob_id: str, data: bytes) -> None:
+        if not self.exec_enabled:
+            raise RuntimeError("blob_execution_gate_closed")
+        self._path_for(blob_id).write_bytes(data)
+
+    def get_blob(self, blob_id: str) -> bytes:
+        return self._path_for(blob_id).read_bytes()
+
+    def delete_blob(self, blob_id: str) -> None:
+        path = self._path_for(blob_id)
+        if path.exists():
+            path.unlink()
+
+    def capabilities(self) -> dict:
+        return {
+            "backend": "local_fs",
+            "provider_family": "filesystem",
+            "dry_run_supported": True,
+            "exec_enabled": self.exec_enabled,
+            "root_path_configured": str(self.root),
         }

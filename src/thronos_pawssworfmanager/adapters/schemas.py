@@ -1,4 +1,4 @@
-"""Persistence and attestation receipt schemas for adapter boundary contracts."""
+"""Persistence, blob, and attestation receipt schemas for adapter boundary contracts."""
 
 from __future__ import annotations
 
@@ -16,6 +16,19 @@ class PersistenceReceipt:
     retryable: bool
     failure_class: str | None
     idempotency_scope: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class BlobWriteReceipt:
+    operation: str
+    status: str
+    backend: str
+    blob_id: str
+    execution_enabled: bool
+    failure_class: str | None
 
     def to_dict(self) -> dict:
         return asdict(self)

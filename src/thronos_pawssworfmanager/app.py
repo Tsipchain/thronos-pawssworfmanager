@@ -20,7 +20,7 @@ def create_app(validate_paths: bool = False) -> dict:
 
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m7-controlled-real-execution-gated",
+        "phase": "m8-first-real-blob-adapter-gated",
         "capabilities": [
             "canonical-manifest",
             "state-hash",

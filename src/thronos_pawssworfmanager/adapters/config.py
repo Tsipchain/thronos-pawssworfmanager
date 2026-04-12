@@ -6,11 +6,11 @@ from dataclasses import asdict, dataclass
 
 
 _ALLOWED_MANIFEST_STORE = {"in_memory"}
-_ALLOWED_BLOB_STORAGE = {"in_memory", "s3", "gcs", "azure_blob"}
+_ALLOWED_BLOB_STORAGE = {"in_memory", "local_fs", "s3", "gcs", "azure_blob"}
 _ALLOWED_ATTESTATION = {"fake", "thronos_chain"}
 _ALLOWED_IDENTITY = {"static"}
 _ALLOWED_EXECUTION_MODES = {"dry_run", "execute"}
-_REAL_LIKE_BLOB = {"s3", "gcs", "azure_blob"}
+_CLOUD_LIKE_BLOB = {"s3", "gcs", "azure_blob"}
 _CHAIN_LIKE_ATTESTATION = {"thronos_chain"}
 
 
@@ -47,8 +47,10 @@ def _policy_matrix() -> dict[str, dict[str, bool]]:
         "blob_storage": {
             "in_memory+dry_run": True,
             "in_memory+execute": True,
-            "real_like+dry_run": True,
-            "real_like+execute": False,
+            "local_fs+dry_run": True,
+            "local_fs+execute": True,
+            "cloud_like+dry_run": True,
+            "cloud_like+execute": False,
         },
         "attestation": {
             "fake+dry_run": True,
@@ -62,7 +64,9 @@ def _policy_matrix() -> dict[str, dict[str, bool]]:
 def _blob_policy_allowed(blob_backend: str, execution_mode: str) -> bool:
     if blob_backend == "in_memory":
         return execution_mode in {"dry_run", "execute"}
-    if blob_backend in _REAL_LIKE_BLOB:
+    if blob_backend == "local_fs":
+        return execution_mode in {"dry_run", "execute"}
+    if blob_backend in _CLOUD_LIKE_BLOB:
         return execution_mode == "dry_run"
     return False
 
