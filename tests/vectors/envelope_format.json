@@ -1,0 +1,6 @@
+[
+  {
+    "name": "valid_header",
+    "header": {"version": "xchacha20poly1305-v1", "nonce_len": 24, "tag_len": 16, "kdf_profile": "argon2id-v1"}
+  }
+]

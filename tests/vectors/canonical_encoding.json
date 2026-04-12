@@ -1,0 +1,22 @@
+[
+  {
+    "name": "key_order_normalization",
+    "manifest": {"vault_id": "v1", "entries": [], "version": 1},
+    "expected_canonical": "{\"entries\":[],\"vault_id\":\"v1\",\"version\":1}"
+  },
+  {
+    "name": "unicode_escape",
+    "manifest": {"vault_id": "🔐", "entries": [{"k": "páss"}], "version": 1},
+    "expected_canonical": "{\"entries\":[{\"k\":\"páss\"}],\"vault_id\":\"🔐\",\"version\":1}"
+  },
+  {
+    "name": "numeric_edge",
+    "manifest": {"vault_id": "n1", "entries": [{"n": 1.5}], "version": 2},
+    "expected_canonical": "{\"entries\":[{\"n\":1.5}],\"vault_id\":\"n1\",\"version\":2}"
+  },
+  {
+    "name": "null_empty_cases",
+    "manifest": {"vault_id": "empty", "entries": [{"n": null}, {}], "version": 3},
+    "expected_canonical": "{\"entries\":[{\"n\":null},{}],\"vault_id\":\"empty\",\"version\":3}"
+  }
+]
