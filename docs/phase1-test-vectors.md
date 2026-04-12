@@ -1,49 +1,73 @@
 # Phase 1 Test Vector Planning
 
+## Canonical vector category index
+
+1. Canonical encoding vectors.
+2. State hashing vectors.
+3. Parent-hash version chaining vectors.
+4. Argon2id parameter validation vectors.
+5. XChaCha20-Poly1305 envelope-format vectors (metadata-only).
+
 ## 1) Canonical encoding vectors (OD-01)
 
-### Categories
+### Pass categories
 - Key-order normalization cases.
 - Unicode normalization and escaping cases.
 - Numeric representation edge cases.
 - Null/empty object/empty array cases.
 
-### Expected assertions
-- Canonical byte output is deterministic for semantically equivalent input.
-- Non-equivalent manifests produce different canonical byte streams.
+### Failure categories
+- Missing required manifest fields.
+- Wrong field types.
+- Non-canonicalizable value types.
+- Fixture mismatch on expected canonical byte output.
 
 ## 2) State hashing vectors (OD-01 + OD-04)
 
-### Categories
+### Pass categories
 - Deterministic hash reproducibility for identical manifest.
 - Sensitivity tests (single-field change flips hash).
 - Genesis version hash computation cases.
 - Cross-language reproducibility fixtures.
 
-### Expected assertions
-- Same canonical bytes => same hash.
-- Any manifest delta => different hash with high probability.
+### Failure categories
+- Invalid canonical byte input for hashing.
+- Unsupported hash-algorithm identifier.
+- Expected-hash mismatch against fixture set.
 
 ## 3) Parent-hash version chaining vectors (OD-04)
 
-### Categories
+### Pass categories
 - Valid linear chain (v1 -> v2 -> v3).
+- Valid long-chain continuity checks.
+
+### Failure categories
 - Broken parent reference chain.
 - Fork attempt with same version and differing parent/hash.
 - Rollback attempt serving older head.
-
-### Expected assertions
-- Valid chain verifies end-to-end.
-- Broken/forked/rollback chains fail verification deterministically.
+- Invalid genesis node constraints.
 
 ## 4) Argon2id parameter validation vectors (OD-03)
 
-### Categories
+### Pass categories
 - Minimum accepted parameter set.
-- Rejected weak-parameter set.
-- Boundary-value parameter sets (time/memory/parallelism).
-- Profile-version tagging and compatibility checks.
+- Boundary-value accepted parameter sets.
+- Profile-version tagging compatibility checks.
 
-### Expected assertions
-- Policy-compliant parameter sets are accepted.
-- Non-compliant sets are rejected with explicit reason codes.
+### Failure categories
+- Rejected weak-parameter set.
+- Missing required parameter fields.
+- Out-of-range memory/time/parallelism values.
+- Unknown profile identifiers.
+
+## 5) XChaCha20-Poly1305 envelope-format vectors (planning)
+
+### Pass categories
+- Required header fields present.
+- Supported envelope version id.
+- Valid declared nonce/tag length metadata.
+
+### Failure categories
+- Missing header fields.
+- Unsupported envelope version id.
+- Invalid nonce/tag length declarations.
