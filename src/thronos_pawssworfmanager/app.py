@@ -20,7 +20,7 @@ def create_app(validate_paths: bool = False) -> dict:
 
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m3-service-contract",
+        "phase": "m4-internal-command-contract",
         "capabilities": [
             "canonical-manifest",
             "state-hash",
@@ -28,6 +28,7 @@ def create_app(validate_paths: bool = False) -> dict:
             "argon2id-policy",
             "runtime-shell",
             "service-contract-layer",
+            "internal-command-contract-layer",
         ],
         "disabled_sensitive_features": [
             "auth-runtime",
@@ -37,6 +38,7 @@ def create_app(validate_paths: bool = False) -> dict:
             "database-integration",
             "export-import-runtime",
             "vault-operations",
+            "vault-command-execution",
         ],
         "routes": [f"{method} {path}" for method, path in shell.routes()],
         "path_validation": {

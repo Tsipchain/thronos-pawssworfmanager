@@ -59,3 +59,11 @@ Single dedicated service process responsible for:
 - auth runtime implementation,
 - blockchain write implementation,
 - any UI or client app surface.
+
+
+## Railway build/start commands
+
+- Build command: `pip install -r requirements.txt`
+- Start command: `PYTHONPATH=src gunicorn -w 1 -b 0.0.0.0:${PORT:-8080} thronos_pawssworfmanager.http_service:wsgi_app`
+
+(Equivalent start declaration exists in `Procfile`.)

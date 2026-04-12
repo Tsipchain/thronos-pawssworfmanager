@@ -9,6 +9,7 @@ from .canonical_manifest import REQUIRED_TOP_LEVEL_FIELDS
 from .contracts import error_contract, success_contract
 from .error_model import ERR_READINESS_FAILED
 from .hash_policy import hash_policy_id
+from .internal_commands import command_schema_summary
 from .runtime import RouteResponse, RuntimeShell
 from .startup_validation import validate_data_paths
 
@@ -23,6 +24,10 @@ def _capability_report() -> dict:
                 "version_chain",
                 "argon2id_policy",
             ],
+        },
+        "internal_command_layer": {
+            "enabled": True,
+            "execution_enabled": False,
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -43,7 +48,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m3-service-contract",
+        "phase": "m4-internal-command-contract",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
     }
@@ -91,6 +96,12 @@ def register_runtime_routes(shell: RuntimeShell) -> None:
         "GET",
         "/v1/metadata",
         lambda: RouteResponse(200, success_contract(_service_metadata())),
+    )
+
+    shell.register(
+        "GET",
+        "/v1/contracts/internal",
+        lambda: RouteResponse(200, success_contract(command_schema_summary())),
     )
 
 

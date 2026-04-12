@@ -20,6 +20,7 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertIn(("GET", "/v1/config"), routes)
         self.assertIn(("GET", "/v1/capabilities"), routes)
         self.assertIn(("GET", "/v1/metadata"), routes)
+        self.assertIn(("GET", "/v1/contracts/internal"), routes)
 
     def test_health_route_contract_shape(self):
         shell = create_runtime_shell()
@@ -82,6 +83,7 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertFalse(disabled["blockchain_writes"])
         self.assertFalse(disabled["vault_operations"])
         self.assertEqual(body["negotiation"]["selected_api_version"], "v1")
+        self.assertFalse(body["internal_command_layer"]["execution_enabled"])
 
     def test_config_route_non_sensitive_metadata(self):
         shell = create_runtime_shell()
@@ -97,6 +99,12 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertEqual(resp.body["data"]["api_default_version"], "v1")
 
+    def test_internal_contract_route(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("GET", "/v1/contracts/internal")
+        self.assertEqual(resp.status, 200)
+        self.assertFalse(resp.body["data"]["execution"]["enabled"])
+
     def test_not_found_route_uses_error_model(self):
         shell = create_runtime_shell()
         resp = shell.handle("GET", "/does-not-exist")
@@ -111,6 +119,6 @@ class TestRuntimeShell(unittest.TestCase):
 
     def test_create_app_reports_runtime_shell_and_disabled_features(self):
         app = create_app(validate_paths=False)
-        self.assertIn("service-contract-layer", app["capabilities"])
-        self.assertIn("blockchain-writes", app["disabled_sensitive_features"])
-        self.assertIn("GET /v1/metadata", app["routes"])
+        self.assertIn("internal-command-contract-layer", app["capabilities"])
+        self.assertIn("vault-command-execution", app["disabled_sensitive_features"])
+        self.assertIn("GET /v1/contracts/internal", app["routes"])
