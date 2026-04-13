@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 
 from thronos_pawssworfmanager.adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
 from thronos_pawssworfmanager.adapters.blob_storage import (
@@ -60,13 +61,29 @@ class TestAdapters(unittest.TestCase):
             s = LocalFileBlobStorage(tmp, exec_enabled=True)
             with self.assertRaises(BlobStorageError) as read_err:
                 s.get_blob("missing")
-            self.assertEqual(read_err.exception.code, "blob_not_found")
+            self.assertEqual(read_err.exception.code, "read_not_found")
             self.assertEqual(read_err.exception.failure_class, "permanent")
 
             with self.assertRaises(BlobStorageError) as del_err:
                 s.delete_blob("missing")
-            self.assertEqual(del_err.exception.code, "blob_not_found")
+            self.assertEqual(del_err.exception.code, "delete_not_found")
             self.assertEqual(del_err.exception.failure_class, "permanent")
+
+    def test_blob_storage_local_fs_atomic_replace_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = LocalFileBlobStorage(tmp, exec_enabled=True)
+            with mock.patch("thronos_pawssworfmanager.adapters.blob_storage.os.replace") as replace_mock:
+                self.assertEqual(s.put_blob("atomic", b"v1"), "created")
+                replace_mock.assert_called_once()
+
+    def test_blob_storage_local_fs_write_error_classification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = LocalFileBlobStorage(tmp, exec_enabled=True)
+            with mock.patch("thronos_pawssworfmanager.adapters.blob_storage.os.replace", side_effect=OSError("disk io")):
+                with self.assertRaises(BlobStorageError) as write_err:
+                    s.put_blob("w1", b"bytes")
+            self.assertEqual(write_err.exception.code, "write_failed")
+            self.assertEqual(write_err.exception.failure_class, "transient")
 
     def test_manifest_store_in_memory(self):
         s = InMemoryManifestStore()

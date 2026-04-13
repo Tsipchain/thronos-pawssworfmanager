@@ -101,7 +101,9 @@ class LocalFileBlobStorage:
         if not self._BLOB_ID.match(blob_id):
             raise BlobStorageError("invalid_blob_id", "permanent", "blob id format invalid")
         candidate = (self.root / f"{blob_id}.blob").resolve()
-        if candidate.parent != self.root:
+        try:
+            candidate.relative_to(self.root)
+        except ValueError:
             raise BlobStorageError("path_escape", "permanent", "blob path escapes root")
         return candidate
 
@@ -109,7 +111,7 @@ class LocalFileBlobStorage:
         if not self.exec_enabled:
             raise BlobStorageError("execution_gate_closed", "permanent", "blob execution gate closed")
         if len(data) > self.max_blob_bytes:
-            raise BlobStorageError("blob_too_large", "permanent", "blob exceeds max size")
+            raise BlobStorageError("size_limit_exceeded", "permanent", "blob exceeds max size")
 
         path = self._path_for(blob_id)
         if path.exists():
@@ -127,6 +129,8 @@ class LocalFileBlobStorage:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_name, path)
+        except OSError as exc:
+            raise BlobStorageError("write_failed", "transient", f"filesystem write failed: {exc}") from exc
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
@@ -135,14 +139,20 @@ class LocalFileBlobStorage:
     def get_blob(self, blob_id: str) -> bytes:
         path = self._path_for(blob_id)
         if not path.exists():
-            raise BlobStorageError("blob_not_found", "permanent", "blob not found")
-        return path.read_bytes()
+            raise BlobStorageError("read_not_found", "permanent", "blob not found")
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            raise BlobStorageError("read_failed", "transient", f"filesystem read failed: {exc}") from exc
 
     def delete_blob(self, blob_id: str) -> None:
         path = self._path_for(blob_id)
         if not path.exists():
-            raise BlobStorageError("blob_not_found", "permanent", "blob not found")
-        path.unlink()
+            raise BlobStorageError("delete_not_found", "permanent", "blob not found")
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise BlobStorageError("delete_failed", "transient", f"filesystem delete failed: {exc}") from exc
 
     def capabilities(self) -> dict:
         return {

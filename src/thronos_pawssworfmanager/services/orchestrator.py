@@ -122,7 +122,7 @@ class CommandOrchestrator:
                 blob_id=blob_id,
                 execution_enabled=True,
                 failure_class=classify_failure(exc),
-                error_code="blob_write_failed",
+                error_code="write_failed",
             )
 
     def _persist_with_policy(self, manifest_hash: str, manifest: dict) -> dict:

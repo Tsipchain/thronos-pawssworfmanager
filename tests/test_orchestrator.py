@@ -121,7 +121,7 @@ class TestOrchestrator(unittest.TestCase):
                 }
             )
             self.assertEqual(out["blob_receipt"]["status"], "failed")
-            self.assertEqual(out["blob_receipt"]["error_code"], "blob_too_large")
+            self.assertEqual(out["blob_receipt"]["error_code"], "size_limit_exceeded")
             self.assertEqual(out["blob_receipt"]["failure_class"], "permanent")
 
     def test_orchestrator_retries_transient_attestation_failure(self):
