@@ -28,6 +28,8 @@ class BlobWriteReceipt:
     status: str
     backend: str
     blob_id: str
+    blob_hash: str | None
+    verified: bool | None
     execution_enabled: bool
     failure_class: str | None
     error_code: str | None

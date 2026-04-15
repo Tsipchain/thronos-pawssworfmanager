@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 
 from ..adapters.attestation import AttestationAdapter
 from ..adapters.blob_storage import BlobStorageAdapter, BlobStorageError
@@ -77,6 +78,8 @@ class CommandOrchestrator:
                 status="not_configured",
                 backend=self.blob_backend,
                 blob_id=blob_id,
+                blob_hash=None,
+                verified=None,
                 execution_enabled=self.execution_enabled,
                 failure_class=None,
                 error_code=None,
@@ -87,6 +90,8 @@ class CommandOrchestrator:
                 status="skipped_gate",
                 backend=self.blob_backend,
                 blob_id=blob_id,
+                blob_hash=None,
+                verified=None,
                 execution_enabled=False,
                 failure_class=None,
                 error_code=None,
@@ -94,12 +99,44 @@ class CommandOrchestrator:
 
         try:
             raw = base64.b64decode(command_result["canonical_bytes"].encode("utf-8"))
+            blob_hash = hashlib.sha256(raw).hexdigest()
+            expected_hash = command_result.get("manifest_hash")
+            if expected_hash and expected_hash != blob_hash:
+                return BlobWriteReceipt(
+                    operation="blob_write",
+                    status="failed",
+                    backend=self.blob_backend,
+                    blob_id=blob_hash,
+                    blob_hash=blob_hash,
+                    verified=False,
+                    execution_enabled=True,
+                    failure_class="permanent",
+                    error_code="blob_hash_mismatch",
+                )
+
+            blob_id = blob_hash
             status = self.blob_storage.put_blob(blob_id, raw)
+            verify_raw = self.blob_storage.get_blob(blob_id)
+            verified = hashlib.sha256(verify_raw).hexdigest() == blob_hash
+            if not verified:
+                return BlobWriteReceipt(
+                    operation="blob_write",
+                    status="failed",
+                    backend=self.blob_backend,
+                    blob_id=blob_id,
+                    blob_hash=blob_hash,
+                    verified=False,
+                    execution_enabled=True,
+                    failure_class="permanent",
+                    error_code="blob_hash_mismatch",
+                )
             return BlobWriteReceipt(
                 operation="blob_write",
                 status=status,
                 backend=self.blob_backend,
                 blob_id=blob_id,
+                blob_hash=blob_hash,
+                verified=True,
                 execution_enabled=True,
                 failure_class=None,
                 error_code=None,
@@ -110,6 +147,8 @@ class CommandOrchestrator:
                 status="failed",
                 backend=self.blob_backend,
                 blob_id=blob_id,
+                blob_hash=None,
+                verified=False,
                 execution_enabled=True,
                 failure_class=exc.failure_class,
                 error_code=exc.code,
@@ -120,6 +159,8 @@ class CommandOrchestrator:
                 status="failed",
                 backend=self.blob_backend,
                 blob_id=blob_id,
+                blob_hash=None,
+                verified=False,
                 execution_enabled=True,
                 failure_class=classify_failure(exc),
                 error_code="write_failed",

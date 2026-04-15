@@ -5,6 +5,7 @@ import unittest
 from thronos_pawssworfmanager.adapters.attestation import FakeAttestationAdapter
 from thronos_pawssworfmanager.adapters.blob_storage import LocalFileBlobStorage
 from thronos_pawssworfmanager.adapters.manifest_store import InMemoryManifestStore
+from thronos_pawssworfmanager.state_hash import compute_manifest_hash
 from thronos_pawssworfmanager.services.orchestrator import CommandOrchestrator
 from thronos_pawssworfmanager.services.retry_semantics import RetryPolicy
 
@@ -23,6 +24,11 @@ class FlakyAttestationAdapter(FakeAttestationAdapter):
 class BrokenAttestationAdapter(FakeAttestationAdapter):
     def submit_attestation(self, manifest_hash: str) -> str:
         raise ValueError("invalid payload")
+
+
+class TamperingBlobStorage(LocalFileBlobStorage):
+    def get_blob(self, blob_id: str) -> bytes:
+        return b"tampered"
 
 
 class TestOrchestrator(unittest.TestCase):
@@ -91,18 +97,22 @@ class TestOrchestrator(unittest.TestCase):
             att = FakeAttestationAdapter()
             blob = LocalFileBlobStorage(tmp, exec_enabled=True)
             orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
-            payload = base64.b64encode(b"hello").decode("utf-8")
+            raw = b"hello"
+            payload = base64.b64encode(raw).decode("utf-8")
+            manifest_hash = compute_manifest_hash(raw)
             out = orch.execute(
                 {
                     "manifest": {"vault_id": "v1", "version": 1, "entries": []},
                     "canonical_bytes": payload,
                     "canonical_bytes_encoding": "base64",
-                    "manifest_hash": "h2",
-                    "chain_node": {"version": 1, "manifest_hash": "h2", "parent_hash": None},
+                    "manifest_hash": manifest_hash,
+                    "chain_node": {"version": 1, "manifest_hash": manifest_hash, "parent_hash": None},
                 }
             )
             self.assertEqual(out["blob_receipt"]["status"], "created")
-            self.assertEqual(blob.get_blob("h2"), b"hello")
+            self.assertEqual(blob.get_blob(manifest_hash), b"hello")
+            self.assertTrue(out["blob_receipt"]["verified"])
+            self.assertEqual(out["blob_receipt"]["blob_hash"], out["blob_receipt"]["blob_id"])
 
     def test_blob_write_failure_receipt_contains_error_code(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -110,19 +120,100 @@ class TestOrchestrator(unittest.TestCase):
             att = FakeAttestationAdapter()
             blob = LocalFileBlobStorage(tmp, exec_enabled=True, max_blob_bytes=2)
             orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
+            raw = b"hello"
+            payload = base64.b64encode(raw).decode("utf-8")
+            manifest_hash = compute_manifest_hash(raw)
+            out = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": manifest_hash,
+                    "chain_node": {"version": 1, "manifest_hash": manifest_hash, "parent_hash": None},
+                }
+            )
+            self.assertEqual(out["blob_receipt"]["status"], "failed")
+            self.assertEqual(out["blob_receipt"]["error_code"], "size_limit_exceeded")
+            self.assertEqual(out["blob_receipt"]["failure_class"], "permanent")
+
+    def test_blob_id_is_deterministic_from_canonical_bytes_hash(self):
+        store = InMemoryManifestStore()
+        att = FakeAttestationAdapter()
+        orch = CommandOrchestrator(store, att, blob_storage=None, execution_enabled=False)
+        raw = b"deterministic"
+        payload = base64.b64encode(raw).decode("utf-8")
+        manifest_hash = compute_manifest_hash(raw)
+        receipt = orch._maybe_write_blob(
+            {
+                "canonical_bytes": payload,
+                "manifest_hash": manifest_hash,
+            }
+        )
+        self.assertEqual(receipt.status, "not_configured")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            blob = LocalFileBlobStorage(tmp, exec_enabled=True)
+            orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
+            out1 = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": manifest_hash,
+                    "chain_node": {"version": 1, "manifest_hash": manifest_hash, "parent_hash": None},
+                }
+            )
+            out2 = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": manifest_hash,
+                    "chain_node": {"version": 1, "manifest_hash": manifest_hash, "parent_hash": None},
+                }
+            )
+            self.assertEqual(out1["blob_receipt"]["blob_id"], out2["blob_receipt"]["blob_id"])
+
+    def test_blob_hash_mismatch_rejected_before_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryManifestStore()
+            att = FakeAttestationAdapter()
+            blob = LocalFileBlobStorage(tmp, exec_enabled=True)
+            orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
             payload = base64.b64encode(b"hello").decode("utf-8")
             out = orch.execute(
                 {
                     "manifest": {"vault_id": "v1", "version": 1, "entries": []},
                     "canonical_bytes": payload,
                     "canonical_bytes_encoding": "base64",
-                    "manifest_hash": "h3",
-                    "chain_node": {"version": 1, "manifest_hash": "h3", "parent_hash": None},
+                    "manifest_hash": "not_the_real_hash",
+                    "chain_node": {"version": 1, "manifest_hash": "not_the_real_hash", "parent_hash": None},
                 }
             )
             self.assertEqual(out["blob_receipt"]["status"], "failed")
-            self.assertEqual(out["blob_receipt"]["error_code"], "size_limit_exceeded")
-            self.assertEqual(out["blob_receipt"]["failure_class"], "permanent")
+            self.assertEqual(out["blob_receipt"]["error_code"], "blob_hash_mismatch")
+            self.assertFalse(out["blob_receipt"]["verified"])
+
+    def test_blob_tampering_detected_during_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryManifestStore()
+            att = FakeAttestationAdapter()
+            blob = TamperingBlobStorage(tmp, exec_enabled=True)
+            orch = CommandOrchestrator(store, att, blob_storage=blob, blob_backend="local_fs", execution_enabled=True)
+            payload = base64.b64encode(b"hello").decode("utf-8")
+            manifest_hash = compute_manifest_hash(b"hello")
+            out = orch.execute(
+                {
+                    "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                    "canonical_bytes": payload,
+                    "canonical_bytes_encoding": "base64",
+                    "manifest_hash": manifest_hash,
+                    "chain_node": {"version": 1, "manifest_hash": manifest_hash, "parent_hash": None},
+                }
+            )
+            self.assertEqual(out["blob_receipt"]["status"], "failed")
+            self.assertEqual(out["blob_receipt"]["error_code"], "blob_hash_mismatch")
+            self.assertFalse(out["blob_receipt"]["verified"])
 
     def test_orchestrator_retries_transient_attestation_failure(self):
         store = InMemoryManifestStore()
