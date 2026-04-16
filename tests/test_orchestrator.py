@@ -341,7 +341,7 @@ class TestOrchestrator(unittest.TestCase):
             rpc_url="https://rpc.example",
             chain_id="111",
             contract_address="0xabc",
-            signer_ref="ref://signer",
+            signer_ref="attestor-pubkey::attestor-signature",
             network="thronos-mainnet",
             exec_enabled=True,
             submit_post_fn=lambda *_args, **_kwargs: {

@@ -203,16 +203,34 @@ class RealThronosAttestationAdapter:
                 "submission_failed_permanent",
             )
 
+        attestor_pubkey = self.signer_ref
+        attestor_signature = payload.metadata.get("attestor_signature")
+        if "::" in self.signer_ref:
+            parsed_pubkey, parsed_signature = self.signer_ref.split("::", 1)
+            attestor_pubkey = parsed_pubkey
+            attestor_signature = attestor_signature or parsed_signature
+        if not attestor_pubkey or not attestor_signature:
+            raise AttestationAdapterError(
+                "attestation_missing_attestor_fields",
+                "permanent",
+                "attestor_pubkey/attestor_signature required for AI_ATTESTATION submit",
+                "submission_failed_permanent",
+            )
+
         request_body = {
-            "chain_id": self.chain_id,
-            "contract_address": self.contract_address,
-            "signer_ref": self.signer_ref,
-            "manifest_hash": payload.manifest_hash,
-            "manifest_version": payload.manifest_version,
-            "attestation_schema_version": payload.attestation_schema_version,
-            "source_system": payload.source_system,
-            "target_network": payload.target_network,
-            "metadata": payload.metadata,
+            "type": "AI_ATTESTATION",
+            "payload": {
+                "chain_id": self.chain_id,
+                "contract_address": self.contract_address,
+                "manifest_hash": payload.manifest_hash,
+                "manifest_version": payload.manifest_version,
+                "attestation_schema_version": payload.attestation_schema_version,
+                "source_system": payload.source_system,
+                "target_network": payload.target_network,
+                "metadata": payload.metadata,
+            },
+            "attestor_pubkey": attestor_pubkey,
+            "attestor_signature": attestor_signature,
         }
         try:
             submit_doc = self._submit_post(self.rpc_url, request_body)
