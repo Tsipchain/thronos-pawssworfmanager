@@ -45,6 +45,8 @@ class AttestationAdapter(Protocol):
 
     def get_attestation(self, attestation_id: str) -> dict: ...
 
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict: ...
+
     def capabilities(self) -> dict: ...
 
 
@@ -70,6 +72,14 @@ class FakeAttestationAdapter:
             "status": "confirmed",
             "attestation_id": attestation_id,
             "mode": "dry_run",
+        }
+
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        return {
+            "confirmation_status": "unknown",
+            "lifecycle_state": "submission_unknown",
+            "confirmation_id": None,
+            "polling_supported": False,
         }
 
     def capabilities(self) -> dict:
@@ -121,6 +131,14 @@ class DryRunChainAttestationAdapter:
             "attestation_id": attestation_id,
             "backend": self.backend,
             "mode": "dry_run",
+        }
+
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        return {
+            "confirmation_status": "still_pending",
+            "lifecycle_state": "submitted_not_finalized",
+            "confirmation_id": None,
+            "polling_supported": True,
         }
 
     def capabilities(self) -> dict:
@@ -232,6 +250,54 @@ class RealThronosAttestationAdapter:
             "mode": "execute",
         }
 
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        if not self.exec_enabled:
+            raise AttestationAdapterError(
+                "attestation_polling_disabled",
+                "permanent",
+                "thronos polling gate closed",
+                "submission_unknown",
+            )
+        if not submission_id:
+            raise AttestationAdapterError(
+                "attestation_poll_missing_submission_id",
+                "permanent",
+                "submission_id required for polling",
+                "submission_unknown",
+            )
+        params = [
+            {
+                "chain_id": self.chain_id,
+                "submission_id": submission_id,
+                "tx_hash": tx_hash,
+                "reconciliation_id": reconciliation_id,
+            }
+        ]
+        try:
+            rpc_doc = self._rpc_post(self.rpc_url, "thronos_getAttestationStatus", params)
+        except TimeoutError as exc:
+            raise AttestationAdapterError(
+                "attestation_poll_timeout",
+                "transient",
+                str(exc),
+                "submission_failed_retryable",
+            ) from exc
+        except URLError as exc:
+            raise AttestationAdapterError(
+                "attestation_poll_unreachable",
+                "transient",
+                str(exc),
+                "submission_failed_retryable",
+            ) from exc
+        except Exception as exc:
+            raise AttestationAdapterError(
+                "attestation_poll_failed",
+                "unknown",
+                str(exc),
+                "submission_unknown",
+            ) from exc
+        return _validate_rpc_poll_result(rpc_doc)
+
     def capabilities(self) -> dict:
         return {
             "backend": "thronos_network",
@@ -317,3 +383,56 @@ def _validate_rpc_submission_result(doc: dict) -> dict:
             "submission_unknown",
         )
     return result
+
+
+def _validate_rpc_poll_result(doc: dict) -> dict:
+    if not isinstance(doc, dict) or doc.get("jsonrpc") != "2.0":
+        raise AttestationAdapterError(
+            "attestation_poll_malformed_envelope",
+            "permanent",
+            "poll rpc envelope invalid",
+            "submission_unknown",
+        )
+    if "error" in doc:
+        raise AttestationAdapterError(
+            "attestation_poll_rpc_error",
+            "permanent",
+            f"poll rpc error: {doc['error']}",
+            "submission_unknown",
+        )
+    result = doc.get("result")
+    if not isinstance(result, dict):
+        raise AttestationAdapterError(
+            "attestation_poll_malformed_result",
+            "permanent",
+            "poll rpc result invalid",
+            "submission_unknown",
+        )
+    status = result.get("status")
+    if status in {"confirmed", "finalized"}:
+        return {
+            "confirmation_status": "confirmed",
+            "lifecycle_state": "confirmed_finalized",
+            "confirmation_id": result.get("confirmation_id"),
+            "polling_supported": True,
+        }
+    if status in {"pending", "submitted"}:
+        return {
+            "confirmation_status": "still_pending",
+            "lifecycle_state": "submitted_not_finalized",
+            "confirmation_id": None,
+            "polling_supported": True,
+        }
+    if status in {"rejected", "dropped"}:
+        return {
+            "confirmation_status": "rejected_or_dropped",
+            "lifecycle_state": "submission_rejected",
+            "confirmation_id": None,
+            "polling_supported": True,
+        }
+    return {
+        "confirmation_status": "unknown",
+        "lifecycle_state": "submission_unknown",
+        "confirmation_id": None,
+        "polling_supported": True,
+    }

@@ -56,6 +56,20 @@ class CapturingAttestationAdapter(FakeAttestationAdapter):
         return super().submit_attestation(payload)
 
 
+class PollingAttestationAdapter(FakeAttestationAdapter):
+    def __init__(self, poll_status: str, lifecycle_state: str):
+        self.poll_status = poll_status
+        self.lifecycle_state = lifecycle_state
+
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        return {
+            "confirmation_status": self.poll_status,
+            "lifecycle_state": self.lifecycle_state,
+            "confirmation_id": "conf-123" if self.poll_status == "confirmed" else None,
+            "polling_supported": True,
+        }
+
+
 class TestOrchestrator(unittest.TestCase):
     def test_orchestrator_persists_manifest_and_returns_attestation(self):
         store = InMemoryManifestStore()
@@ -407,3 +421,51 @@ class TestOrchestrator(unittest.TestCase):
         self.assertIn("confirmation_status", receipt)
         self.assertIn("reconciliation_id", receipt)
         self.assertEqual(receipt["confirmation_status"], "not_polled")
+
+    def test_reconcile_attestation_receipt_confirmed_transition(self):
+        store = InMemoryManifestStore()
+        att = PollingAttestationAdapter("confirmed", "confirmed_finalized")
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "still_pending",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["attestation_receipt"]["confirmation_status"], "confirmed")
+        self.assertEqual(out["attestation_receipt"]["lifecycle_state"], "confirmed_finalized")
+        self.assertEqual(out["attestation_receipt"]["confirmation_id"], "conf-123")
+
+    def test_reconcile_attestation_receipt_rejected_transition(self):
+        store = InMemoryManifestStore()
+        att = PollingAttestationAdapter("rejected_or_dropped", "submission_rejected")
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "still_pending",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["attestation_receipt"]["confirmation_status"], "rejected_or_dropped")
+        self.assertEqual(out["attestation_receipt"]["lifecycle_state"], "submission_rejected")
+
+    def test_reconcile_attestation_receipt_invalid_transition_is_rejected(self):
+        store = InMemoryManifestStore()
+        att = PollingAttestationAdapter("still_pending", "submitted_not_finalized")
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "confirmed",
+                "lifecycle_state": "confirmed_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["error"]["error_code"], "invalid_confirmation_transition")

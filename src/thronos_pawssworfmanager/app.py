@@ -20,7 +20,7 @@ def create_app(validate_paths: bool = False) -> dict:
 
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m10.3-thronos-submission-observability-prep",
+        "phase": "m11-thronos-finality-polling-reconciliation",
         "capabilities": [
             "canonical-manifest",
             "state-hash",

@@ -14,6 +14,14 @@ from .retry_semantics import RetryPolicy, classify_failure, is_retryable
 
 
 class CommandOrchestrator:
+    _ALLOWED_CONFIRMATION_TRANSITIONS = {
+        "not_polled": {"still_pending", "confirmed", "rejected_or_dropped", "unknown"},
+        "still_pending": {"still_pending", "confirmed", "rejected_or_dropped", "unknown"},
+        "unknown": {"still_pending", "confirmed", "rejected_or_dropped", "unknown"},
+        "confirmed": {"confirmed"},
+        "rejected_or_dropped": {"rejected_or_dropped"},
+    }
+
     def __init__(
         self,
         manifest_store: ManifestStoreAdapter,
@@ -74,6 +82,33 @@ class CommandOrchestrator:
             "blob_receipt": blob_receipt.to_dict(),
             "attestation_receipt": attestation.to_dict(),
         }
+
+    def reconcile_attestation_receipt(self, attestation_receipt: dict) -> dict:
+        submission_id = attestation_receipt.get("submission_id")
+        tx_hash = attestation_receipt.get("tx_hash")
+        reconciliation_id = attestation_receipt.get("reconciliation_id")
+        current_status = attestation_receipt.get("confirmation_status", "not_polled")
+
+        poll = self.attestation.poll_attestation(submission_id, tx_hash, reconciliation_id)
+        next_status = poll.get("confirmation_status", "unknown")
+        allowed = self._ALLOWED_CONFIRMATION_TRANSITIONS.get(current_status, {"unknown"})
+        if next_status not in allowed:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_transition",
+                    "lifecycle_state": "submission_unknown",
+                    "message": f"invalid transition {current_status}->{next_status}",
+                }
+            }
+
+        updated = dict(attestation_receipt)
+        updated["confirmation_status"] = next_status
+        updated["lifecycle_state"] = poll.get("lifecycle_state", updated.get("lifecycle_state", "submission_unknown"))
+        updated["confirmation_id"] = poll.get("confirmation_id")
+        return {"attestation_receipt": updated}
 
     def _validate_manifest_binding(self, command_result: dict) -> dict | None:
         try:

@@ -240,6 +240,45 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(err.exception.code, "attestation_submission_rejected")
         self.assertEqual(err.exception.lifecycle_state, "submission_rejected")
 
+    def test_real_thronos_polling_status_classification(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda _url, method, _params: {
+                "jsonrpc": "2.0",
+                "result": {"status": "finalized", "confirmation_id": "conf-1"},
+            }
+            if method == "thronos_getAttestationStatus"
+            else {"jsonrpc": "2.0", "result": {"status": "accepted", "tx_hash": "0x" + "a" * 64}},
+        )
+        poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
+        self.assertEqual(poll["confirmation_status"], "confirmed")
+        self.assertEqual(poll["lifecycle_state"], "confirmed_finalized")
+        self.assertEqual(poll["confirmation_id"], "conf-1")
+
+    def test_real_thronos_polling_unknown_status_classification(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda _url, method, _params: {
+                "jsonrpc": "2.0",
+                "result": {"status": "mystery"},
+            }
+            if method == "thronos_getAttestationStatus"
+            else {"jsonrpc": "2.0", "result": {"status": "accepted", "tx_hash": "0x" + "a" * 64}},
+        )
+        poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
+        self.assertEqual(poll["confirmation_status"], "unknown")
+        self.assertEqual(poll["lifecycle_state"], "submission_unknown")
+
     def test_real_thronos_attestation_adapter_rejects_invalid_tx_hash(self):
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",
