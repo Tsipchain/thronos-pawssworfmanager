@@ -197,6 +197,33 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "execute"})
 
+    def test_provider_config_requires_rpc_generic_shape(self):
+        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary(
+                {
+                    "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "generic-mainnet",
+                    "ATTESTATION_CHAIN_ID": "1",
+                    "ATTESTATION_SIGNER_REF": "env://rpc-signer",
+                },
+                cfg,
+            )
+        boundary = load_provider_config_boundary(
+            {
+                "ATTESTATION_RPC_URL": "https://rpc.example",
+                "ATTESTATION_TARGET_NETWORK": "generic-mainnet",
+                "ATTESTATION_CHAIN_ID": "1",
+                "ATTESTATION_SIGNER_REF": "env://rpc-signer",
+                "ATTESTATION_BACKEND_LABEL": "evm_generic",
+                "ATTESTATION_RPC_SUBMIT_METHOD": "eth_sendRawTransaction",
+                "ATTESTATION_RPC_POLL_METHOD": "eth_getTransactionReceipt",
+            },
+            cfg,
+        )
+        self.assertEqual(boundary.attestation.backend, "rpc_generic")
+        self.assertEqual(boundary.attestation.rpc_submit_method, "eth_sendRawTransaction")
+
     def test_execution_gating_forbidden_when_not_execute_mode(self):
         gates = evaluate_execution_gates(
             enable_real_execution=True,

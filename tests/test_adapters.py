@@ -7,6 +7,7 @@ from thronos_pawssworfmanager.adapters.attestation import (
     AttestationPayload,
     DryRunChainAttestationAdapter,
     FakeAttestationAdapter,
+    GenericRpcAttestationAdapter,
     RealThronosAttestationAdapter,
 )
 from thronos_pawssworfmanager.adapters.blob_storage import (
@@ -409,6 +410,38 @@ class TestAdapters(unittest.TestCase):
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
         self.assertEqual(err.exception.code, "attestation_invalid_tx_hash")
+
+    def test_generic_rpc_attestation_adapter_contract_is_dry_run_only(self):
+        a = GenericRpcAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="1",
+            network="generic-mainnet",
+            backend_label="evm_generic",
+            rpc_submit_method="eth_sendRawTransaction",
+            rpc_poll_method="eth_getTransactionReceipt",
+            exec_enabled=False,
+        )
+        submission = a.submit_attestation(self._payload(target_backend_type="rpc_generic", target_network="generic-mainnet"))
+        self.assertEqual(submission["status"], "prepared_dry_run")
+        self.assertEqual(submission["confirmation_status"], "not_polled")
+        self.assertEqual(submission["finality_status"], "not_finalized")
+        caps = a.capabilities()
+        self.assertFalse(caps["real_submission_supported"])
+        self.assertTrue(caps["rpc_generic_contract_prepared"])
+
+    def test_generic_rpc_attestation_adapter_exec_gate_is_fail_closed(self):
+        a = GenericRpcAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="1",
+            network="generic-mainnet",
+            backend_label="evm_generic",
+            rpc_submit_method="eth_sendRawTransaction",
+            rpc_poll_method="eth_getTransactionReceipt",
+            exec_enabled=True,
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload(target_backend_type="rpc_generic", target_network="generic-mainnet"))
+        self.assertEqual(err.exception.code, "rpc_generic_execution_disabled")
 
     def test_static_identity(self):
         i = StaticIdentity()

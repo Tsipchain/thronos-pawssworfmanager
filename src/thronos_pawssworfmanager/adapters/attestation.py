@@ -365,6 +365,89 @@ class RealThronosAttestationAdapter:
         }
 
 
+class GenericRpcAttestationAdapter:
+    """Generic RPC attestation contract preparation (real execution disabled)."""
+
+    def __init__(
+        self,
+        rpc_url: str,
+        chain_id: str,
+        network: str,
+        backend_label: str,
+        rpc_submit_method: str,
+        rpc_poll_method: str,
+        exec_enabled: bool = False,
+    ) -> None:
+        self.rpc_url = rpc_url
+        self.chain_id = chain_id
+        self.network = network
+        self.backend_label = backend_label
+        self.rpc_submit_method = rpc_submit_method
+        self.rpc_poll_method = rpc_poll_method
+        self.exec_enabled = exec_enabled
+
+    def submit_attestation(self, payload: AttestationPayload) -> dict:
+        if self.exec_enabled:
+            raise AttestationAdapterError(
+                "rpc_generic_execution_disabled",
+                "permanent",
+                "generic rpc real execution remains disabled by policy",
+                "submission_failed_permanent",
+            )
+        return {
+            "status": "prepared_dry_run",
+            "lifecycle_state": "submitted_not_finalized",
+            "attestation_id": f"rpc_generic_{payload.manifest_hash[:8]}",
+            "submission_id": f"sub_rpcg_{payload.manifest_hash[:8]}",
+            "network": self.network,
+            "tx_hash": None,
+            "confirmation_id": None,
+            "confirmation_status": "not_polled",
+            "finality_status": "not_finalized",
+            "confirmation_proof": None,
+            "reconciliation_id": f"{self.backend_label}:{payload.manifest_hash[:8]}",
+            "execution_mode": "dry_run",
+            "dry_run": True,
+        }
+
+    def get_attestation(self, attestation_id: str) -> dict:
+        return {
+            "status": "prepared_dry_run",
+            "attestation_id": attestation_id,
+            "backend": "rpc_generic",
+            "mode": "dry_run",
+        }
+
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        return {
+            "confirmation_status": "unknown",
+            "finality_status": "unknown",
+            "lifecycle_state": "submission_unknown",
+            "confirmation_id": None,
+            "confirmation_proof": {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": "generic_rpc_unavailable",
+                "confirmation_id": None,
+            },
+            "polling_supported": False,
+        }
+
+    def capabilities(self) -> dict:
+        return {
+            "backend": "rpc_generic",
+            "network": self.network,
+            "provider_family": "chain",
+            "dry_run_supported": True,
+            "exec_enabled": self.exec_enabled,
+            "real_submission_supported": False,
+            "rpc_generic_contract_prepared": True,
+            "rpc_submit_method": self.rpc_submit_method,
+            "rpc_poll_method": self.rpc_poll_method,
+            "backend_label": self.backend_label,
+        }
+
+
 def _json_rpc_post(rpc_url: str, method: str, params: list[dict]) -> dict:
     payload = {"jsonrpc": "2.0", "id": "pawssworfmanager", "method": method, "params": params}
     body = json.dumps(payload).encode("utf-8")

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import os
 
-from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter, RealThronosAttestationAdapter
+from .adapters.attestation import (
+    DryRunChainAttestationAdapter,
+    FakeAttestationAdapter,
+    GenericRpcAttestationAdapter,
+    RealThronosAttestationAdapter,
+)
 from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage, LocalFileBlobStorage
 from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
 from .adapters.execution_gating import evaluate_execution_gates
@@ -56,6 +61,25 @@ else:
     )
 if _ADAPTER_CONFIG.attestation_backend == "fake":
     _ATTESTATION = FakeAttestationAdapter()
+elif _ADAPTER_CONFIG.attestation_backend == "rpc_generic":
+    if not (
+        _PROVIDER_CONFIG.attestation.rpc_url
+        and _PROVIDER_CONFIG.attestation.chain_id
+        and _PROVIDER_CONFIG.attestation.signer_ref
+        and _PROVIDER_CONFIG.attestation.target_network
+        and _PROVIDER_CONFIG.attestation.backend_label
+        and _PROVIDER_CONFIG.attestation.rpc_submit_method
+    ):
+        raise ValueError("incomplete_rpc_generic_attestation_provider_config")
+    _ATTESTATION = GenericRpcAttestationAdapter(
+        rpc_url=_PROVIDER_CONFIG.attestation.rpc_url,
+        chain_id=_PROVIDER_CONFIG.attestation.chain_id,
+        network=_PROVIDER_CONFIG.attestation.target_network,
+        backend_label=_PROVIDER_CONFIG.attestation.backend_label,
+        rpc_submit_method=_PROVIDER_CONFIG.attestation.rpc_submit_method,
+        rpc_poll_method=_PROVIDER_CONFIG.attestation.rpc_poll_method or "status_lookup_not_configured",
+        exec_enabled=False,
+    )
 elif _ADAPTER_CONFIG.attestation_backend == "thronos_network" and _EXECUTION_GATES.execution_enabled:
     if not (
         _PROVIDER_CONFIG.attestation.rpc_url
@@ -149,7 +173,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m12.1-confirmation-proof-schema-hardening",
+        "phase": "m13-generic-rpc-real-attestation-preparation",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
