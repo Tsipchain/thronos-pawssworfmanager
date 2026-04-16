@@ -344,9 +344,10 @@ class TestOrchestrator(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {
-                "jsonrpc": "2.0",
-                "result": {"status": "accepted", "tx_hash": "0x" + "a" * 64, "attestation_id": "att-real-1"},
+            submit_post_fn=lambda *_args, **_kwargs: {
+                "status": "accepted",
+                "tx_hash": "0x" + "a" * 64,
+                "attestation_id": "att-real-1",
             },
         )
         orch = CommandOrchestrator(store, att, attestation_backend="thronos_network")

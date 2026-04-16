@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from unittest import mock
+from urllib.error import HTTPError
 
 from thronos_pawssworfmanager.adapters.attestation import (
     AttestationAdapterError,
@@ -162,6 +163,13 @@ class TestAdapters(unittest.TestCase):
         self.assertTrue(caps["poll_result_type_validation_enforced"])
 
     def test_real_thronos_attestation_adapter_executes_when_enabled(self):
+        captured: dict[str, object] = {}
+
+        def _submit(url: str, body: dict) -> dict:
+            captured["url"] = url
+            captured["body"] = body
+            return {"status": "accepted", "tx_hash": "0x" + "a" * 64, "attestation_id": "att-real-1"}
+
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",
             chain_id="111",
@@ -169,10 +177,7 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {
-                "jsonrpc": "2.0",
-                "result": {"status": "accepted", "tx_hash": "0x" + "a" * 64, "attestation_id": "att-real-1"},
-            },
+            submit_post_fn=_submit,
         )
         submission = a.submit_attestation(
             self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet")
@@ -185,8 +190,16 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(submission["finality_status"], "not_finalized")
         self.assertTrue(submission["reconciliation_id"].startswith("thronos-mainnet:0x"))
         self.assertFalse(submission["dry_run"])
+        self.assertEqual(captured["url"], "https://rpc.example")
+        body = captured["body"]
+        self.assertEqual(body["manifest_hash"], "abcdef123")
+        self.assertEqual(body["manifest_version"], 1)
+        self.assertEqual(body["attestation_schema_version"], "v1")
+        self.assertNotIn("jsonrpc", body)
+        self.assertNotIn("method", body)
+        self.assertNotIn("params", body)
 
-    def test_real_thronos_attestation_adapter_rejects_malformed_rpc_success(self):
+    def test_real_thronos_attestation_adapter_rejects_malformed_rest_response(self):
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",
             chain_id="111",
@@ -194,13 +207,13 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {"result": {"tx_hash": "0x" + "b" * 64}},
+            submit_post_fn=lambda *_args, **_kwargs: [],
         )
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
-        self.assertEqual(err.exception.code, "attestation_rpc_malformed_envelope")
+        self.assertEqual(err.exception.code, "attestation_submit_malformed_response")
 
-    def test_real_thronos_attestation_adapter_rejects_rpc_error(self):
+    def test_real_thronos_attestation_adapter_maps_400_malformed_request_to_permanent(self):
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",
             chain_id="111",
@@ -208,11 +221,14 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "error": {"code": -32000, "message": "revert"}},
+            submit_post_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                HTTPError("https://rpc.example", 400, "Bad Request", hdrs=None, fp=None)
+            ),
         )
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
-        self.assertEqual(err.exception.code, "attestation_rpc_error")
+        self.assertEqual(err.exception.code, "attestation_submit_bad_request")
+        self.assertEqual(err.exception.lifecycle_state, "submission_failed_permanent")
 
     def test_real_thronos_attestation_adapter_rejects_missing_tx_hash(self):
         a = RealThronosAttestationAdapter(
@@ -222,7 +238,7 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "result": {"status": "accepted"}},
+            submit_post_fn=lambda *_args, **_kwargs: {"status": "accepted"},
         )
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
@@ -236,10 +252,7 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {
-                "jsonrpc": "2.0",
-                "result": {"status": "rejected", "tx_hash": "0x" + "c" * 64},
-            },
+            submit_post_fn=lambda *_args, **_kwargs: {"status": "rejected", "tx_hash": "0x" + "c" * 64},
         )
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
