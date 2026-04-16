@@ -289,6 +289,10 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(receipt["status"], "submitted")
         self.assertEqual(receipt["lifecycle_state"], "submitted_not_finalized")
         self.assertEqual(receipt["tx_hash"], "0x" + "a" * 64)
+        self.assertTrue(receipt["submission_id"].startswith("sub_"))
+        self.assertIsNone(receipt["confirmation_id"])
+        self.assertEqual(receipt["confirmation_status"], "not_polled")
+        self.assertTrue(receipt["reconciliation_id"].startswith("thronos-mainnet:0x"))
         self.assertEqual(receipt["execution_mode"], "execute")
         self.assertFalse(receipt["dry_run"])
 
@@ -383,3 +387,23 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(out["error"]["error_code"], "attestation_invalid_tx_hash")
         self.assertEqual(out["error"]["lifecycle_state"], "submission_failed_permanent")
         self.assertFalse(out["error"]["retryable"])
+
+    def test_dry_run_attestation_receipt_exposes_future_finality_fields(self):
+        store = InMemoryManifestStore()
+        att = FakeAttestationAdapter()
+        orch = CommandOrchestrator(store, att)
+        out = orch.execute(
+            {
+                "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                "canonical_bytes": "ignored",
+                "canonical_bytes_encoding": "base64",
+                "manifest_hash": "futurefields",
+                "chain_node": {"version": 1, "manifest_hash": "futurefields", "parent_hash": None},
+            }
+        )
+        receipt = out["attestation_receipt"]
+        self.assertIn("submission_id", receipt)
+        self.assertIn("confirmation_id", receipt)
+        self.assertIn("confirmation_status", receipt)
+        self.assertIn("reconciliation_id", receipt)
+        self.assertEqual(receipt["confirmation_status"], "not_polled")

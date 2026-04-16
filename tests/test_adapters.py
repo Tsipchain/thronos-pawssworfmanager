@@ -175,6 +175,9 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(submission["status"], "submitted")
         self.assertEqual(submission["lifecycle_state"], "submitted_not_finalized")
         self.assertEqual(submission["tx_hash"], "0x" + "a" * 64)
+        self.assertTrue(submission["submission_id"].startswith("sub_"))
+        self.assertEqual(submission["confirmation_status"], "not_polled")
+        self.assertTrue(submission["reconciliation_id"].startswith("thronos-mainnet:0x"))
         self.assertFalse(submission["dry_run"])
 
     def test_real_thronos_attestation_adapter_rejects_malformed_rpc_success(self):

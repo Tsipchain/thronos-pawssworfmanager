@@ -46,7 +46,11 @@ class AttestationReceipt:
     status: str
     lifecycle_state: str
     attestation_id: str | None
+    submission_id: str | None
     tx_hash: str | None
+    confirmation_id: str | None
+    confirmation_status: str
+    reconciliation_id: str | None
     submitted_at: str | None
     attempts: int
     max_attempts: int
