@@ -65,7 +65,18 @@ class TestRuntimeShell(unittest.TestCase):
         provider = resp.body["data"]["adapters"]["provider_config_boundary"]
         self.assertEqual(provider["field_classification"]["blob"]["access_key_ref"], "sensitive_ref")
         self.assertEqual(provider["field_classification"]["blob"]["access_key_raw"], "forbidden_raw")
+        self.assertEqual(provider["field_classification"]["attestation"]["signer_ref"], "sensitive_ref")
         self.assertEqual(provider["redaction_matrix"]["forbidden_raw"], "never_report_and_refuse_startup_if_set")
+
+    def test_capabilities_report_attestation_backend_contracts(self):
+        shell = create_runtime_shell()
+        adapters = shell.handle("GET", "/v1/capabilities").body["data"]["adapters"]
+        self.assertIn("thronos_network", adapters["supported_attestation_backends"])
+        self.assertIn("rpc_generic", adapters["supported_attestation_backends"])
+        self.assertIn("selected_attestation_backend", adapters)
+        self.assertIn("attestation_execution_ready", adapters)
+        self.assertIn("attestation_execution_enabled", adapters)
+        self.assertFalse(adapters["attestation_execution_enabled"])
 
     def test_config_includes_execution_gate_contract(self):
         shell = create_runtime_shell()

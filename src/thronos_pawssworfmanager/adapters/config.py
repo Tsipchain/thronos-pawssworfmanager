@@ -7,11 +7,10 @@ from dataclasses import asdict, dataclass
 
 _ALLOWED_MANIFEST_STORE = {"in_memory"}
 _ALLOWED_BLOB_STORAGE = {"in_memory", "local_fs", "s3", "gcs", "azure_blob"}
-_ALLOWED_ATTESTATION = {"fake", "thronos_chain"}
+_ALLOWED_ATTESTATION = {"fake", "thronos_network", "rpc_generic"}
 _ALLOWED_IDENTITY = {"static"}
 _ALLOWED_EXECUTION_MODES = {"dry_run", "execute"}
 _CLOUD_LIKE_BLOB = {"s3", "gcs", "azure_blob"}
-_CHAIN_LIKE_ATTESTATION = {"thronos_chain"}
 
 
 @dataclass(frozen=True)
@@ -55,8 +54,10 @@ def _policy_matrix() -> dict[str, dict[str, bool]]:
         "attestation": {
             "fake+dry_run": True,
             "fake+execute": True,
-            "chain_like+dry_run": True,
-            "chain_like+execute": False,
+            "thronos_network+dry_run": True,
+            "thronos_network+execute": True,
+            "rpc_generic+dry_run": True,
+            "rpc_generic+execute": False,
         },
     }
 
@@ -74,7 +75,9 @@ def _blob_policy_allowed(blob_backend: str, execution_mode: str) -> bool:
 def _attestation_policy_allowed(attestation_backend: str, execution_mode: str) -> bool:
     if attestation_backend == "fake":
         return execution_mode in {"dry_run", "execute"}
-    if attestation_backend in _CHAIN_LIKE_ATTESTATION:
+    if attestation_backend == "thronos_network":
+        return execution_mode in {"dry_run", "execute"}
+    if attestation_backend == "rpc_generic":
         return execution_mode == "dry_run"
     return False
 

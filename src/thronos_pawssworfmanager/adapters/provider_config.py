@@ -11,6 +11,7 @@ _FORBIDDEN_RAW_SECRET_ENV_KEYS = (
     "BLOB_ACCESS_KEY",
     "BLOB_SECRET_KEY",
     "ATTESTATION_SIGNER_KEY",
+    "ATTESTATION_SIGNER_RAW",
 )
 
 _BLOB_CLASSIFICATION = {
@@ -29,8 +30,10 @@ _ATTESTATION_CLASSIFICATION = {
     "rpc_url": "public",
     "chain_id": "public",
     "contract_address": "public",
-    "signer_key_ref": "sensitive_ref",
-    "signer_key_raw": "forbidden_raw",
+    "signer_ref": "sensitive_ref",
+    "gas_policy_ref": "public",
+    "backend_label": "public",
+    "signer_raw": "forbidden_raw",
 }
 
 _REDACTION_MATRIX = {
@@ -61,10 +64,13 @@ class BlobProviderConfig:
 @dataclass(frozen=True)
 class AttestationProviderConfig:
     backend: str
+    target_network: str | None
     rpc_url: str | None
     chain_id: str | None
     contract_address: str | None
-    signer_key_ref: str | None
+    signer_ref: str | None
+    gas_policy_ref: str | None
+    backend_label: str | None
 
 
 @dataclass(frozen=True)
@@ -83,8 +89,12 @@ class ProviderConfigBoundary:
             missing = [f for f in ("provider", "bucket", "region") if not getattr(self.blob, f)]
             if missing:
                 raise ValueError(f"incomplete_blob_provider_config:{','.join(missing)}")
-        if self.attestation.backend != "fake":
-            missing = [f for f in ("rpc_url", "chain_id") if not getattr(self.attestation, f)]
+        if self.attestation.backend in {"thronos_network", "rpc_generic"}:
+            missing = [
+                f
+                for f in ("target_network", "rpc_url", "chain_id", "contract_address", "signer_ref")
+                if not getattr(self.attestation, f)
+            ]
             if missing:
                 raise ValueError(f"incomplete_attestation_provider_config:{','.join(missing)}")
 
@@ -106,9 +116,12 @@ class ProviderConfigBoundary:
         att_any = any(
             [
                 self.attestation.rpc_url,
+                self.attestation.target_network,
                 self.attestation.chain_id,
                 self.attestation.contract_address,
-                self.attestation.signer_key_ref,
+                self.attestation.signer_ref,
+                self.attestation.gas_policy_ref,
+                self.attestation.backend_label,
             ]
         )
         if self.attestation.backend == "fake" and att_any:
@@ -117,8 +130,8 @@ class ProviderConfigBoundary:
         if (self.blob.access_key_ref is None) != (self.blob.secret_key_ref is None):
             raise ValueError("incomplete_blob_secret_ref_pair")
 
-        if (self.attestation.contract_address is None) != (self.attestation.signer_key_ref is None):
-            raise ValueError("incomplete_attestation_signer_pair")
+        if self.attestation.backend == "thronos_network" and self.attestation.backend_label:
+            raise ValueError("contradictory_attestation_backend_label_for_thronos")
 
     def to_redacted_dict(self) -> dict:
         return {
@@ -144,10 +157,13 @@ class ProviderConfigBoundary:
             },
             "attestation": {
                 "backend": self.attestation.backend,
+                "target_network": self.attestation.target_network,
                 "rpc_url": self.attestation.rpc_url,
                 "chain_id": self.attestation.chain_id,
                 "contract_address": self.attestation.contract_address,
-                "signer_key_ref": _redact_ref(self.attestation.signer_key_ref),
+                "signer_ref": _redact_ref(self.attestation.signer_ref),
+                "gas_policy_ref": self.attestation.gas_policy_ref,
+                "backend_label": self.attestation.backend_label,
             },
         }
 
@@ -175,10 +191,13 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
 
     attestation = AttestationProviderConfig(
         backend=config.attestation_backend,
+        target_network=env.get("ATTESTATION_TARGET_NETWORK"),
         rpc_url=env.get("ATTESTATION_RPC_URL"),
         chain_id=env.get("ATTESTATION_CHAIN_ID"),
         contract_address=env.get("ATTESTATION_CONTRACT_ADDRESS"),
-        signer_key_ref=env.get("ATTESTATION_SIGNER_KEY_REF"),
+        signer_ref=env.get("ATTESTATION_SIGNER_REF") or env.get("ATTESTATION_SIGNER_KEY_REF"),
+        gas_policy_ref=env.get("ATTESTATION_GAS_POLICY_REF"),
+        backend_label=env.get("ATTESTATION_BACKEND_LABEL"),
     )
 
     boundary = ProviderConfigBoundary(
@@ -187,7 +206,7 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
         attestation=attestation,
         required_for_future_execute={
             "blob": ("provider", "bucket", "region", "local_root_path", "access_key_ref", "secret_key_ref"),
-            "attestation": ("rpc_url", "chain_id", "contract_address", "signer_key_ref"),
+            "attestation": ("rpc_url", "chain_id", "contract_address", "signer_ref", "target_network"),
         },
     )
     boundary.validate_consistency()

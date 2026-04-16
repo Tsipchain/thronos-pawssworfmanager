@@ -2,7 +2,7 @@ import base64
 import tempfile
 import unittest
 
-from thronos_pawssworfmanager.adapters.attestation import FakeAttestationAdapter
+from thronos_pawssworfmanager.adapters.attestation import AttestationAdapterError, FakeAttestationAdapter, RealThronosAttestationAdapter
 from thronos_pawssworfmanager.adapters.blob_storage import LocalFileBlobStorage
 from thronos_pawssworfmanager.adapters.manifest_store import InMemoryManifestStore
 from thronos_pawssworfmanager.state_hash import compute_manifest_hash
@@ -14,21 +14,46 @@ class FlakyAttestationAdapter(FakeAttestationAdapter):
     def __init__(self):
         self.calls = 0
 
-    def submit_attestation(self, manifest_hash: str) -> str:
+    def submit_attestation(self, payload) -> dict:
         self.calls += 1
         if self.calls == 1:
             raise TimeoutError("temporary network")
-        return super().submit_attestation(manifest_hash)
+        return super().submit_attestation(payload)
 
 
 class BrokenAttestationAdapter(FakeAttestationAdapter):
-    def submit_attestation(self, manifest_hash: str) -> str:
+    def submit_attestation(self, payload) -> dict:
         raise ValueError("invalid payload")
+
+
+class TransientAttestationAdapter(FakeAttestationAdapter):
+    def __init__(self):
+        self.calls = 0
+
+    def submit_attestation(self, payload) -> dict:
+        self.calls += 1
+        if self.calls == 1:
+            raise AttestationAdapterError("attestation_rpc_timeout", "transient", "timeout")
+        return super().submit_attestation(payload)
+
+
+class PermanentAttestationAdapter(FakeAttestationAdapter):
+    def submit_attestation(self, payload) -> dict:
+        raise AttestationAdapterError("attestation_invalid_tx_hash", "permanent", "invalid tx")
 
 
 class TamperingBlobStorage(LocalFileBlobStorage):
     def get_blob(self, blob_id: str) -> bytes:
         return b"tampered"
+
+
+class CapturingAttestationAdapter(FakeAttestationAdapter):
+    def __init__(self):
+        self.last_payload = None
+
+    def submit_attestation(self, payload) -> dict:
+        self.last_payload = payload
+        return super().submit_attestation(payload)
 
 
 class TestOrchestrator(unittest.TestCase):
@@ -190,9 +215,13 @@ class TestOrchestrator(unittest.TestCase):
                     "chain_node": {"version": 1, "manifest_hash": "not_the_real_hash", "parent_hash": None},
                 }
             )
-            self.assertEqual(out["blob_receipt"]["status"], "failed")
-            self.assertEqual(out["blob_receipt"]["error_code"], "blob_hash_mismatch")
-            self.assertFalse(out["blob_receipt"]["verified"])
+            self.assertEqual(out["error"]["stage"], "integrity_binding")
+            self.assertEqual(out["error"]["error_code"], "blob_hash_mismatch")
+            self.assertFalse(out["error"]["retryable"])
+            self.assertNotIn("persistence_receipt", out)
+            self.assertNotIn("blob_receipt", out)
+            with self.assertRaises(KeyError):
+                store.get_manifest("not_the_real_hash")
 
     def test_blob_tampering_detected_during_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,6 +260,58 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(att.calls, 2)
         self.assertEqual(out["attestation_receipt"]["attempts"], 2)
 
+    def test_attestation_receipt_real_thronos_submission_shape(self):
+        store = InMemoryManifestStore()
+        att = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {
+                "jsonrpc": "2.0",
+                "result": {"status": "accepted", "tx_hash": "0x" + "a" * 64, "attestation_id": "att-real-1"},
+            },
+        )
+        orch = CommandOrchestrator(store, att, attestation_backend="thronos_network")
+        command_result = {
+            "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+            "canonical_bytes": "ignored",
+            "canonical_bytes_encoding": "base64",
+            "manifest_hash": "abcd1234",
+            "chain_node": {"version": 1, "manifest_hash": "abcd1234", "parent_hash": None},
+        }
+        out = orch.execute(command_result)
+        receipt = out["attestation_receipt"]
+        self.assertEqual(receipt["backend"], "thronos_network")
+        self.assertEqual(receipt["network"], "thronos-mainnet")
+        self.assertEqual(receipt["status"], "submitted")
+        self.assertEqual(receipt["tx_hash"], "0x" + "a" * 64)
+        self.assertEqual(receipt["execution_mode"], "execute")
+        self.assertFalse(receipt["dry_run"])
+
+    def test_attestation_payload_shape_excludes_sensitive_content(self):
+        store = InMemoryManifestStore()
+        att = CapturingAttestationAdapter()
+        orch = CommandOrchestrator(store, att)
+        command_result = {
+            "manifest": {"vault_id": "v1", "version": 3, "entries": [{"id": "entry1", "secret": "hidden"}]},
+            "canonical_bytes": "ignored",
+            "canonical_bytes_encoding": "base64",
+            "manifest_hash": "payloadhash",
+            "chain_node": {"version": 3, "manifest_hash": "payloadhash", "parent_hash": "old"},
+        }
+        orch.execute(command_result)
+        payload = att.last_payload
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.manifest_hash, "payloadhash")
+        self.assertEqual(payload.manifest_version, 3)
+        self.assertEqual(payload.attestation_schema_version, "v1")
+        self.assertEqual(payload.source_system, "thronos-pawssworfmanager")
+        self.assertFalse(hasattr(payload, "entries"))
+        self.assertFalse(hasattr(payload, "canonical_bytes"))
+
     def test_orchestrator_reports_permanent_attestation_failure(self):
         store = InMemoryManifestStore()
         att = BrokenAttestationAdapter()
@@ -246,4 +327,37 @@ class TestOrchestrator(unittest.TestCase):
         out = orch.execute(command_result)
         self.assertEqual(out["error"]["stage"], "attestation")
         self.assertEqual(out["error"]["failure_class"], "permanent")
+        self.assertFalse(out["error"]["retryable"])
+
+    def test_orchestrator_retries_transient_adapter_error(self):
+        store = InMemoryManifestStore()
+        att = TransientAttestationAdapter()
+        orch = CommandOrchestrator(store, att, retry_policy=RetryPolicy(max_attempts=2))
+        out = orch.execute(
+            {
+                "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                "canonical_bytes": "ignored",
+                "canonical_bytes_encoding": "base64",
+                "manifest_hash": "retryhash2",
+                "chain_node": {"version": 1, "manifest_hash": "retryhash2", "parent_hash": None},
+            }
+        )
+        self.assertEqual(att.calls, 2)
+        self.assertEqual(out["attestation_receipt"]["attempts"], 2)
+
+    def test_orchestrator_returns_attestation_error_code_for_permanent_adapter_error(self):
+        store = InMemoryManifestStore()
+        att = PermanentAttestationAdapter()
+        orch = CommandOrchestrator(store, att, retry_policy=RetryPolicy(max_attempts=2))
+        out = orch.execute(
+            {
+                "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+                "canonical_bytes": "ignored",
+                "canonical_bytes_encoding": "base64",
+                "manifest_hash": "permanenthash",
+                "chain_node": {"version": 1, "manifest_hash": "permanenthash", "parent_hash": None},
+            }
+        )
+        self.assertEqual(out["error"]["stage"], "attestation")
+        self.assertEqual(out["error"]["error_code"], "attestation_invalid_tx_hash")
         self.assertFalse(out["error"]["retryable"])

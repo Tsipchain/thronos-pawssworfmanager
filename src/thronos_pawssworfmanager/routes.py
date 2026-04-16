@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
+from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter, RealThronosAttestationAdapter
 from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage, LocalFileBlobStorage
 from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
 from .adapters.execution_gating import evaluate_execution_gates
@@ -54,15 +54,32 @@ else:
         _ADAPTER_CONFIG.blob_storage_backend,
         exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
     )
-_ATTESTATION = (
-    FakeAttestationAdapter()
-    if _ADAPTER_CONFIG.attestation_backend == "fake"
-    else DryRunChainAttestationAdapter(
+if _ADAPTER_CONFIG.attestation_backend == "fake":
+    _ATTESTATION = FakeAttestationAdapter()
+elif _ADAPTER_CONFIG.attestation_backend == "thronos_network" and _EXECUTION_GATES.execution_enabled:
+    if not (
+        _PROVIDER_CONFIG.attestation.rpc_url
+        and _PROVIDER_CONFIG.attestation.chain_id
+        and _PROVIDER_CONFIG.attestation.contract_address
+        and _PROVIDER_CONFIG.attestation.signer_ref
+        and _PROVIDER_CONFIG.attestation.target_network
+    ):
+        raise ValueError("incomplete_thronos_attestation_provider_config")
+    _ATTESTATION = RealThronosAttestationAdapter(
+        rpc_url=_PROVIDER_CONFIG.attestation.rpc_url,
+        chain_id=_PROVIDER_CONFIG.attestation.chain_id,
+        contract_address=_PROVIDER_CONFIG.attestation.contract_address,
+        signer_ref=_PROVIDER_CONFIG.attestation.signer_ref,
+        network=_PROVIDER_CONFIG.attestation.target_network,
+        exec_enabled=True,
+    )
+else:
+    _ATTESTATION = DryRunChainAttestationAdapter(
         _ADAPTER_CONFIG.attestation_backend,
+        network=_PROVIDER_CONFIG.attestation.target_network or _PROVIDER_CONFIG.attestation.chain_id or "unknown",
         exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
         simulate_failure=os.getenv("SIMULATE_ATTESTATION_FAILURE", "0") == "1",
     )
-)
 _IDENTITY = StaticIdentity()
 _ORCHESTRATOR = CommandOrchestrator(
     _MANIFEST_STORE,
@@ -96,6 +113,8 @@ def _capability_report() -> dict:
             "manifest_store": _ADAPTER_CONFIG.manifest_store_backend,
             "blob_storage": _ADAPTER_CONFIG.blob_storage_backend,
             "attestation": _ADAPTER_CONFIG.attestation_backend,
+            "supported_attestation_backends": ["fake", "thronos_network", "rpc_generic"],
+            "selected_attestation_backend": _ADAPTER_CONFIG.attestation_backend,
             "identity": _ADAPTER_CONFIG.identity_backend,
             "execution_mode": _ADAPTER_CONFIG.execution_mode,
             "dry_run_enabled": _ADAPTER_CONFIG.dry_run_enabled,
@@ -108,6 +127,8 @@ def _capability_report() -> dict:
             "execution_gates": _EXECUTION_GATES.to_dict(),
             "execution_ready": _EXECUTION_GATES.execution_ready,
             "execution_enabled": _EXECUTION_GATES.execution_enabled,
+            "attestation_execution_ready": _EXECUTION_GATES.execution_ready and _EXECUTION_POLICY["attestation_allowed"],
+            "attestation_execution_enabled": _EXECUTION_GATES.execution_enabled and _EXECUTION_POLICY["attestation_allowed"],
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -128,7 +149,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m8.1-blob-execution-hardening",
+        "phase": "m10.1-real-thronos-attestation-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
@@ -136,6 +157,8 @@ def _service_metadata() -> dict:
         "secret_backed_adapters": ["blob_storage", "attestation"],
         "execution_ready": _EXECUTION_GATES.execution_ready,
         "execution_enabled": _EXECUTION_GATES.execution_enabled,
+        "attestation_execution_ready": _EXECUTION_GATES.execution_ready and _EXECUTION_POLICY["attestation_allowed"],
+        "attestation_execution_enabled": _EXECUTION_GATES.execution_enabled and _EXECUTION_POLICY["attestation_allowed"],
     }
 
 

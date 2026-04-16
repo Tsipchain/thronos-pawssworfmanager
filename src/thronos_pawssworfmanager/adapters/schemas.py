@@ -41,14 +41,19 @@ class BlobWriteReceipt:
 @dataclass(frozen=True)
 class AttestationReceipt:
     operation: str
-    status: str
     backend: str
+    network: str
+    status: str
     attestation_id: str | None
+    tx_hash: str | None
+    submitted_at: str | None
     attempts: int
     max_attempts: int
     retryable: bool
     failure_class: str | None
     error_code: str | None
+    execution_mode: str
+    dry_run: bool
 
     def to_dict(self) -> dict:
         return asdict(self)

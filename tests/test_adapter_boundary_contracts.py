@@ -39,8 +39,10 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertFalse(matrix["blob_storage"]["cloud_like+execute"])
         self.assertTrue(matrix["attestation"]["fake+dry_run"])
         self.assertTrue(matrix["attestation"]["fake+execute"])
-        self.assertTrue(matrix["attestation"]["chain_like+dry_run"])
-        self.assertFalse(matrix["attestation"]["chain_like+execute"])
+        self.assertTrue(matrix["attestation"]["thronos_network+dry_run"])
+        self.assertTrue(matrix["attestation"]["thronos_network+execute"])
+        self.assertTrue(matrix["attestation"]["rpc_generic+dry_run"])
+        self.assertFalse(matrix["attestation"]["rpc_generic+execute"])
 
     def test_resolve_adapter_config_allows_in_memory_dry_run_and_execute(self):
         cfg_a = resolve_adapter_config({"BLOB_STORAGE_BACKEND": "in_memory", "ADAPTER_EXECUTION_MODE": "dry_run"})
@@ -65,11 +67,11 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertEqual(cfg_a.attestation_backend, "fake")
         self.assertEqual(cfg_b.execution_mode, "execute")
 
-    def test_resolve_adapter_config_allows_chain_attestation_only_in_dry_run(self):
-        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_chain", "ADAPTER_EXECUTION_MODE": "dry_run"})
-        self.assertEqual(cfg.attestation_backend, "thronos_chain")
-        with self.assertRaises(ValueError):
-            resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_chain", "ADAPTER_EXECUTION_MODE": "execute"})
+    def test_resolve_adapter_config_allows_thronos_attestation_execute(self):
+        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        self.assertEqual(cfg.attestation_backend, "thronos_network")
+        cfg_execute = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "execute"})
+        self.assertEqual(cfg_execute.execution_mode, "execute")
 
     def test_resolve_adapter_config_rejects_unsupported_backend(self):
         with self.assertRaises(ValueError):
@@ -94,7 +96,11 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
 
     def test_provider_config_boundary_requires_shape_for_real_backends(self):
         cfg = resolve_adapter_config(
-            {"BLOB_STORAGE_BACKEND": "s3", "ATTESTATION_BACKEND": "thronos_chain", "ADAPTER_EXECUTION_MODE": "dry_run"}
+            {
+                "BLOB_STORAGE_BACKEND": "s3",
+                "ATTESTATION_BACKEND": "thronos_network",
+                "ADAPTER_EXECUTION_MODE": "dry_run",
+            }
         )
         with self.assertRaises(ValueError):
             load_provider_config_boundary({}, cfg)
@@ -105,12 +111,20 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
                 "BLOB_BUCKET": "bucket-a",
                 "BLOB_REGION": "us-east-1",
                 "ATTESTATION_RPC_URL": "https://rpc.example",
+                "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
                 "ATTESTATION_CHAIN_ID": "42",
+                "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
+                "ATTESTATION_SIGNER_REF": "ref://thronos-signer",
             },
             cfg,
         )
         self.assertEqual(boundary.blob.bucket, "bucket-a")
         self.assertEqual(boundary.attestation.chain_id, "42")
+
+    def test_provider_config_incomplete_fails_for_thronos_execute_mode(self):
+        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "execute"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary({"ATTESTATION_RPC_URL": "https://rpc.example"}, cfg)
 
     def test_provider_config_boundary_rejects_plaintext_secrets(self):
         cfg = resolve_adapter_config({})
@@ -119,7 +133,11 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
 
     def test_provider_config_boundary_redacts_refs(self):
         cfg = resolve_adapter_config(
-            {"BLOB_STORAGE_BACKEND": "s3", "ATTESTATION_BACKEND": "thronos_chain", "ADAPTER_EXECUTION_MODE": "dry_run"}
+            {
+                "BLOB_STORAGE_BACKEND": "s3",
+                "ATTESTATION_BACKEND": "thronos_network",
+                "ADAPTER_EXECUTION_MODE": "dry_run",
+            }
         )
         boundary = load_provider_config_boundary(
             {
@@ -129,16 +147,17 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
                 "BLOB_ACCESS_KEY_REF": "env://blob-access",
                 "BLOB_SECRET_KEY_REF": "env://blob-secret",
                 "ATTESTATION_RPC_URL": "https://rpc.example",
+                "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
                 "ATTESTATION_CHAIN_ID": "42",
                 "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
-                "ATTESTATION_SIGNER_KEY_REF": "env://chain-signer",
+                "ATTESTATION_SIGNER_REF": "env://chain-signer",
             },
             cfg,
         )
         redacted = boundary.to_redacted_dict()
         self.assertEqual(redacted["blob"]["access_key_ref"], "<redacted:set>")
         self.assertEqual(redacted["blob"]["secret_key_ref"], "<redacted:set>")
-        self.assertEqual(redacted["attestation"]["signer_key_ref"], "<redacted:set>")
+        self.assertEqual(redacted["attestation"]["signer_ref"], "<redacted:set>")
 
     def test_provider_config_rejects_contradictory_fields_for_in_memory_and_fake(self):
         cfg = resolve_adapter_config({})
@@ -160,16 +179,23 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
                 cfg,
             )
 
-        cfg_chain = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_chain", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        cfg_chain = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "dry_run"})
         with self.assertRaises(ValueError):
             load_provider_config_boundary(
                 {
                     "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
                     "ATTESTATION_CHAIN_ID": "42",
-                    "ATTESTATION_SIGNER_KEY_REF": "env://chain-signer",
+                    "ATTESTATION_SIGNER_REF": "env://chain-signer",
                 },
                 cfg_chain,
             )
+
+    def test_resolve_adapter_config_allows_rpc_generic_only_in_dry_run(self):
+        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        self.assertEqual(cfg.attestation_backend, "rpc_generic")
+        with self.assertRaises(ValueError):
+            resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "execute"})
 
     def test_execution_gating_forbidden_when_not_execute_mode(self):
         gates = evaluate_execution_gates(
