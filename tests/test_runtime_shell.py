@@ -79,7 +79,8 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertFalse(adapters["attestation_execution_enabled"])
         self.assertIn("rpc_generic_policy", adapters)
         self.assertFalse(adapters["rpc_generic_policy"]["enabled"])
-        self.assertTrue(adapters["rpc_generic_policy"]["execute_forbidden_in_m13_1"])
+        self.assertIn("policy_pair", adapters["rpc_generic_policy"])
+        self.assertIn("policy_allows_pair", adapters["rpc_generic_policy"])
 
     def test_metadata_reports_rpc_generic_policy_contract(self):
         shell = create_runtime_shell()

@@ -411,7 +411,7 @@ class TestAdapters(unittest.TestCase):
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
         self.assertEqual(err.exception.code, "attestation_invalid_tx_hash")
 
-    def test_generic_rpc_attestation_adapter_contract_is_dry_run_only(self):
+    def test_generic_rpc_attestation_adapter_contract_prepared_with_execution_capability(self):
         a = GenericRpcAttestationAdapter(
             rpc_url="https://rpc.example",
             chain_id="1",
@@ -426,10 +426,10 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(submission["confirmation_status"], "not_polled")
         self.assertEqual(submission["finality_status"], "not_finalized")
         caps = a.capabilities()
-        self.assertFalse(caps["real_submission_supported"])
+        self.assertTrue(caps["real_submission_supported"])
         self.assertTrue(caps["rpc_generic_contract_prepared"])
 
-    def test_generic_rpc_attestation_adapter_exec_gate_is_fail_closed(self):
+    def test_generic_rpc_attestation_adapter_executes_when_enabled(self):
         a = GenericRpcAttestationAdapter(
             rpc_url="https://rpc.example",
             chain_id="1",
@@ -438,10 +438,31 @@ class TestAdapters(unittest.TestCase):
             rpc_submit_method="eth_sendRawTransaction",
             rpc_poll_method="eth_getTransactionReceipt",
             exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {
+                "jsonrpc": "2.0",
+                "result": {"tx_hash": "0x" + "d" * 64, "submission_id": "sub-rpc-1", "attestation_id": "att-rpc-1"},
+            },
+        )
+        out = a.submit_attestation(self._payload(target_backend_type="rpc_generic", target_network="generic-mainnet"))
+        self.assertEqual(out["status"], "submitted")
+        self.assertEqual(out["tx_hash"], "0x" + "d" * 64)
+        self.assertEqual(out["execution_mode"], "execute")
+        self.assertFalse(out["dry_run"])
+
+    def test_generic_rpc_attestation_adapter_rejects_malformed_response(self):
+        a = GenericRpcAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="1",
+            network="generic-mainnet",
+            backend_label="evm_generic",
+            rpc_submit_method="eth_sendRawTransaction",
+            rpc_poll_method="eth_getTransactionReceipt",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "result": {"status": "accepted"}},
         )
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="rpc_generic", target_network="generic-mainnet"))
-        self.assertEqual(err.exception.code, "rpc_generic_execution_disabled")
+        self.assertEqual(err.exception.code, "rpc_generic_invalid_tx_hash")
 
     def test_static_identity(self):
         i = StaticIdentity()

@@ -366,7 +366,7 @@ class RealThronosAttestationAdapter:
 
 
 class GenericRpcAttestationAdapter:
-    """Generic RPC attestation contract preparation (real execution disabled)."""
+    """Generic RPC attestation adapter with gate-controlled real execution."""
 
     def __init__(
         self,
@@ -377,6 +377,7 @@ class GenericRpcAttestationAdapter:
         rpc_submit_method: str,
         rpc_poll_method: str,
         exec_enabled: bool = False,
+        rpc_post_fn: Callable[[str, str, list[dict]], dict] | None = None,
     ) -> None:
         self.rpc_url = rpc_url
         self.chain_id = chain_id
@@ -385,15 +386,64 @@ class GenericRpcAttestationAdapter:
         self.rpc_submit_method = rpc_submit_method
         self.rpc_poll_method = rpc_poll_method
         self.exec_enabled = exec_enabled
+        self._rpc_post = rpc_post_fn or _json_rpc_post
 
     def submit_attestation(self, payload: AttestationPayload) -> dict:
         if self.exec_enabled:
-            raise AttestationAdapterError(
-                "rpc_generic_execution_disabled",
-                "permanent",
-                "generic rpc real execution remains disabled by policy",
-                "submission_failed_permanent",
-            )
+            params = [
+                {
+                    "chain_id": self.chain_id,
+                    "backend_label": self.backend_label,
+                    "manifest_hash": payload.manifest_hash,
+                    "manifest_version": payload.manifest_version,
+                    "attestation_schema_version": payload.attestation_schema_version,
+                    "source_system": payload.source_system,
+                    "target_network": payload.target_network,
+                    "metadata": payload.metadata,
+                }
+            ]
+            try:
+                rpc_doc = self._rpc_post(self.rpc_url, self.rpc_submit_method, params)
+            except TimeoutError as exc:
+                raise AttestationAdapterError(
+                    "rpc_generic_timeout",
+                    "transient",
+                    str(exc),
+                    "submission_failed_retryable",
+                ) from exc
+            except URLError as exc:
+                raise AttestationAdapterError(
+                    "rpc_generic_unreachable",
+                    "transient",
+                    str(exc),
+                    "submission_failed_retryable",
+                ) from exc
+            except Exception as exc:
+                raise AttestationAdapterError(
+                    "rpc_generic_submit_failed",
+                    "unknown",
+                    str(exc),
+                    "submission_unknown",
+                ) from exc
+            result = _validate_rpc_generic_submission_result(rpc_doc)
+            tx_hash = result["tx_hash"]
+            submission_id = result.get("submission_id") or f"sub_rpcg_{payload.manifest_hash[:8]}_{tx_hash[2:10]}"
+            attestation_id = result.get("attestation_id") or f"rpc_generic_{tx_hash[2:10]}"
+            return {
+                "status": "submitted",
+                "lifecycle_state": "submitted_not_finalized",
+                "attestation_id": attestation_id,
+                "submission_id": submission_id,
+                "network": self.network,
+                "tx_hash": tx_hash,
+                "confirmation_id": None,
+                "confirmation_status": "not_polled",
+                "finality_status": "not_finalized",
+                "confirmation_proof": None,
+                "reconciliation_id": f"{self.backend_label}:{tx_hash}",
+                "execution_mode": "execute",
+                "dry_run": False,
+            }
         return {
             "status": "prepared_dry_run",
             "lifecycle_state": "submitted_not_finalized",
@@ -440,7 +490,7 @@ class GenericRpcAttestationAdapter:
             "provider_family": "chain",
             "dry_run_supported": True,
             "exec_enabled": self.exec_enabled,
-            "real_submission_supported": False,
+            "real_submission_supported": True,
             "rpc_generic_contract_prepared": True,
             "rpc_submit_method": self.rpc_submit_method,
             "rpc_poll_method": self.rpc_poll_method,
@@ -454,6 +504,49 @@ def _json_rpc_post(rpc_url: str, method: str, params: list[dict]) -> dict:
     req = Request(rpc_url, data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _validate_rpc_generic_submission_result(doc: dict) -> dict:
+    if not isinstance(doc, dict) or doc.get("jsonrpc") != "2.0":
+        raise AttestationAdapterError(
+            "rpc_generic_malformed_envelope",
+            "permanent",
+            "rpc generic envelope invalid",
+            "submission_unknown",
+        )
+    if "error" in doc:
+        raise AttestationAdapterError(
+            "rpc_generic_rpc_error",
+            "permanent",
+            f"rpc generic error: {doc['error']}",
+            "submission_failed_permanent",
+        )
+    result = doc.get("result")
+    if not isinstance(result, dict):
+        raise AttestationAdapterError(
+            "rpc_generic_malformed_result",
+            "permanent",
+            "rpc generic result invalid",
+            "submission_unknown",
+        )
+    tx_hash = result.get("tx_hash")
+    if not isinstance(tx_hash, str) or not re.fullmatch(r"0x[a-fA-F0-9]{64}", tx_hash):
+        raise AttestationAdapterError(
+            "rpc_generic_invalid_tx_hash",
+            "permanent",
+            "rpc generic tx hash missing or invalid",
+            "submission_unknown",
+        )
+    for optional in ("submission_id", "attestation_id"):
+        value = result.get(optional)
+        if value is not None and not isinstance(value, str):
+            raise AttestationAdapterError(
+                "rpc_generic_malformed_result",
+                "permanent",
+                f"{optional} must be string",
+                "submission_unknown",
+            )
+    return result
 
 
 def _validate_rpc_submission_result(doc: dict) -> dict:

@@ -57,7 +57,7 @@ def _policy_matrix() -> dict[str, dict[str, bool]]:
             "thronos_network+dry_run": True,
             "thronos_network+execute": True,
             "rpc_generic+dry_run": True,
-            "rpc_generic+execute": False,
+            "rpc_generic+execute": True,
         },
     }
 
@@ -78,7 +78,7 @@ def _attestation_policy_allowed(attestation_backend: str, execution_mode: str) -
     if attestation_backend == "thronos_network":
         return execution_mode in {"dry_run", "execute"}
     if attestation_backend == "rpc_generic":
-        return execution_mode == "dry_run"
+        return execution_mode in {"dry_run", "execute"}
     return False
 
 

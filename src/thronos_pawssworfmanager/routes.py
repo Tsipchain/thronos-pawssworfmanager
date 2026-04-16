@@ -78,7 +78,7 @@ elif _ADAPTER_CONFIG.attestation_backend == "rpc_generic":
         backend_label=_PROVIDER_CONFIG.attestation.backend_label,
         rpc_submit_method=_PROVIDER_CONFIG.attestation.rpc_submit_method,
         rpc_poll_method=_PROVIDER_CONFIG.attestation.rpc_poll_method or "status_lookup_not_configured",
-        exec_enabled=False,
+        exec_enabled=_EXECUTION_GATES.execution_enabled,
     )
 elif _ADAPTER_CONFIG.attestation_backend == "thronos_network" and _EXECUTION_GATES.execution_enabled:
     if not (
@@ -121,14 +121,15 @@ def _rpc_generic_policy_contract() -> dict:
     selected = _ADAPTER_CONFIG.attestation_backend == "rpc_generic"
     pair = f"rpc_generic+{_ADAPTER_CONFIG.execution_mode}"
     matrix = _EXECUTION_POLICY["matrix"]["attestation"]
+    allows_pair = bool(matrix.get(pair, False))
     return {
         "selected_backend": selected,
         "policy_pair": pair,
-        "policy_allows_pair": bool(matrix.get(pair, False)),
-        "execute_forbidden_in_m13_1": True,
-        "readiness": selected and _ADAPTER_CONFIG.execution_mode == "dry_run",
-        "enabled": False,
-        "denial_reason": "policy_forbids_generic_rpc_execute_in_m13_1",
+        "policy_allows_pair": allows_pair,
+        "execute_forbidden_in_m14": False,
+        "readiness": selected and allows_pair,
+        "enabled": selected and _EXECUTION_GATES.execution_enabled,
+        "denial_reason": None if (selected and _EXECUTION_GATES.execution_enabled) else "gates_not_enabled_or_backend_not_selected",
     }
 
 
@@ -189,7 +190,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m13.1-generic-rpc-execution-policy-hardening",
+        "phase": "m14-generic-rpc-real-execution-first-pass",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],

@@ -42,7 +42,7 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertTrue(matrix["attestation"]["thronos_network+dry_run"])
         self.assertTrue(matrix["attestation"]["thronos_network+execute"])
         self.assertTrue(matrix["attestation"]["rpc_generic+dry_run"])
-        self.assertFalse(matrix["attestation"]["rpc_generic+execute"])
+        self.assertTrue(matrix["attestation"]["rpc_generic+execute"])
 
     def test_resolve_adapter_config_allows_in_memory_dry_run_and_execute(self):
         cfg_a = resolve_adapter_config({"BLOB_STORAGE_BACKEND": "in_memory", "ADAPTER_EXECUTION_MODE": "dry_run"})
@@ -220,11 +220,11 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
                 cfg_chain,
             )
 
-    def test_resolve_adapter_config_allows_rpc_generic_only_in_dry_run(self):
+    def test_resolve_adapter_config_allows_rpc_generic_execute_pair(self):
         cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "dry_run"})
         self.assertEqual(cfg.attestation_backend, "rpc_generic")
-        with self.assertRaises(ValueError):
-            resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "execute"})
+        cfg_execute = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "execute"})
+        self.assertEqual(cfg_execute.execution_mode, "execute")
 
     def test_provider_config_requires_rpc_generic_shape(self):
         cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "dry_run"})
