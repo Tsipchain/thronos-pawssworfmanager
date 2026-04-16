@@ -7,6 +7,7 @@ from thronos_pawssworfmanager.adapters.attestation import (
     AttestationPayload,
     DryRunChainAttestationAdapter,
     FakeAttestationAdapter,
+    GenericRpcAttestationAdapter,
     RealThronosAttestationAdapter,
 )
 from thronos_pawssworfmanager.adapters.blob_storage import (
@@ -155,6 +156,10 @@ class TestAdapters(unittest.TestCase):
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
         self.assertEqual(err.exception.code, "attestation_execution_disabled")
+        caps = a.capabilities()
+        self.assertTrue(caps["polling_supported"])
+        self.assertTrue(caps["reconciliation_tuple_enforced"])
+        self.assertTrue(caps["poll_result_type_validation_enforced"])
 
     def test_real_thronos_attestation_adapter_executes_when_enabled(self):
         a = RealThronosAttestationAdapter(
@@ -177,6 +182,7 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(submission["tx_hash"], "0x" + "a" * 64)
         self.assertTrue(submission["submission_id"].startswith("sub_"))
         self.assertEqual(submission["confirmation_status"], "not_polled")
+        self.assertEqual(submission["finality_status"], "not_finalized")
         self.assertTrue(submission["reconciliation_id"].startswith("thronos-mainnet:0x"))
         self.assertFalse(submission["dry_run"])
 
@@ -257,6 +263,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "confirmed")
+        self.assertEqual(poll["finality_status"], "finalized")
         self.assertEqual(poll["lifecycle_state"], "confirmed_finalized")
         self.assertEqual(poll["confirmation_id"], "conf-1")
 
@@ -277,6 +284,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "unknown")
+        self.assertEqual(poll["finality_status"], "unknown")
         self.assertEqual(poll["lifecycle_state"], "submission_unknown")
 
     def test_real_thronos_polling_pending_status_classification(self):
@@ -296,6 +304,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "still_pending")
+        self.assertEqual(poll["finality_status"], "not_finalized")
         self.assertEqual(poll["lifecycle_state"], "submitted_not_finalized")
 
     def test_real_thronos_polling_rejected_status_classification(self):
@@ -315,6 +324,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "rejected_or_dropped")
+        self.assertEqual(poll["finality_status"], "rejected")
         self.assertEqual(poll["lifecycle_state"], "submission_rejected")
 
     def test_real_thronos_polling_rejects_mismatched_reconciliation_ids(self):
@@ -400,6 +410,38 @@ class TestAdapters(unittest.TestCase):
         with self.assertRaises(AttestationAdapterError) as err:
             a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
         self.assertEqual(err.exception.code, "attestation_invalid_tx_hash")
+
+    def test_generic_rpc_attestation_adapter_contract_is_dry_run_only(self):
+        a = GenericRpcAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="1",
+            network="generic-mainnet",
+            backend_label="evm_generic",
+            rpc_submit_method="eth_sendRawTransaction",
+            rpc_poll_method="eth_getTransactionReceipt",
+            exec_enabled=False,
+        )
+        submission = a.submit_attestation(self._payload(target_backend_type="rpc_generic", target_network="generic-mainnet"))
+        self.assertEqual(submission["status"], "prepared_dry_run")
+        self.assertEqual(submission["confirmation_status"], "not_polled")
+        self.assertEqual(submission["finality_status"], "not_finalized")
+        caps = a.capabilities()
+        self.assertFalse(caps["real_submission_supported"])
+        self.assertTrue(caps["rpc_generic_contract_prepared"])
+
+    def test_generic_rpc_attestation_adapter_exec_gate_is_fail_closed(self):
+        a = GenericRpcAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="1",
+            network="generic-mainnet",
+            backend_label="evm_generic",
+            rpc_submit_method="eth_sendRawTransaction",
+            rpc_poll_method="eth_getTransactionReceipt",
+            exec_enabled=True,
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload(target_backend_type="rpc_generic", target_network="generic-mainnet"))
+        self.assertEqual(err.exception.code, "rpc_generic_execution_disabled")
 
     def test_static_identity(self):
         i = StaticIdentity()

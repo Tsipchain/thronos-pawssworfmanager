@@ -50,7 +50,12 @@ class AttestationReceipt:
     tx_hash: str | None
     confirmation_id: str | None
     confirmation_status: str
+    finality_status: str
+    confirmation_proof: dict | None
     reconciliation_id: str | None
+    replay_state: str
+    replay_key: str | None
+    replay_observation_count: int
     submitted_at: str | None
     attempts: int
     max_attempts: int

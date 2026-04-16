@@ -15,6 +15,7 @@ JSON-RPC poll result hardening:
 - poll envelope must be valid JSON-RPC `2.0`
 - `result.status`, when present, must be a string
 - `result.confirmation_id`, when present, must be a string
+- capability reports expose these guardrails as enforced on the real Thronos adapter
 
 Identity tuple rules for polling:
 

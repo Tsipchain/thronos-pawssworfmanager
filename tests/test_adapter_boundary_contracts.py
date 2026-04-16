@@ -166,6 +166,35 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_provider_config_boundary({"ATTESTATION_RPC_URL": "https://rpc.example"}, cfg)
 
+    def test_provider_config_rejects_backend_specific_attestation_contradictions(self):
+        cfg_thronos = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary(
+                {
+                    "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
+                    "ATTESTATION_CHAIN_ID": "42",
+                    "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
+                    "ATTESTATION_SIGNER_REF": "env://chain-signer",
+                    "ATTESTATION_RPC_SUBMIT_METHOD": "eth_sendRawTransaction",
+                },
+                cfg_thronos,
+            )
+        cfg_rpc = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary(
+                {
+                    "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "generic-mainnet",
+                    "ATTESTATION_CHAIN_ID": "1",
+                    "ATTESTATION_SIGNER_REF": "env://rpc-signer",
+                    "ATTESTATION_BACKEND_LABEL": "evm_generic",
+                    "ATTESTATION_RPC_SUBMIT_METHOD": "eth_sendRawTransaction",
+                    "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
+                },
+                cfg_rpc,
+            )
+
     def test_provider_config_rejects_partial_sensitive_pairs(self):
         cfg = resolve_adapter_config({"BLOB_STORAGE_BACKEND": "s3", "ADAPTER_EXECUTION_MODE": "dry_run"})
         with self.assertRaises(ValueError):
@@ -196,6 +225,33 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertEqual(cfg.attestation_backend, "rpc_generic")
         with self.assertRaises(ValueError):
             resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "execute"})
+
+    def test_provider_config_requires_rpc_generic_shape(self):
+        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "rpc_generic", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary(
+                {
+                    "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "generic-mainnet",
+                    "ATTESTATION_CHAIN_ID": "1",
+                    "ATTESTATION_SIGNER_REF": "env://rpc-signer",
+                },
+                cfg,
+            )
+        boundary = load_provider_config_boundary(
+            {
+                "ATTESTATION_RPC_URL": "https://rpc.example",
+                "ATTESTATION_TARGET_NETWORK": "generic-mainnet",
+                "ATTESTATION_CHAIN_ID": "1",
+                "ATTESTATION_SIGNER_REF": "env://rpc-signer",
+                "ATTESTATION_BACKEND_LABEL": "evm_generic",
+                "ATTESTATION_RPC_SUBMIT_METHOD": "eth_sendRawTransaction",
+                "ATTESTATION_RPC_POLL_METHOD": "eth_getTransactionReceipt",
+            },
+            cfg,
+        )
+        self.assertEqual(boundary.attestation.backend, "rpc_generic")
+        self.assertEqual(boundary.attestation.rpc_submit_method, "eth_sendRawTransaction")
 
     def test_execution_gating_forbidden_when_not_execute_mode(self):
         gates = evaluate_execution_gates(

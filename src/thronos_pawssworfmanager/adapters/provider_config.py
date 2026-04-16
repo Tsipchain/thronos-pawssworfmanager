@@ -33,6 +33,8 @@ _ATTESTATION_CLASSIFICATION = {
     "signer_ref": "sensitive_ref",
     "gas_policy_ref": "public",
     "backend_label": "public",
+    "rpc_submit_method": "public",
+    "rpc_poll_method": "public",
     "signer_raw": "forbidden_raw",
 }
 
@@ -71,6 +73,8 @@ class AttestationProviderConfig:
     signer_ref: str | None
     gas_policy_ref: str | None
     backend_label: str | None
+    rpc_submit_method: str | None
+    rpc_poll_method: str | None
 
 
 @dataclass(frozen=True)
@@ -89,10 +93,18 @@ class ProviderConfigBoundary:
             missing = [f for f in ("provider", "bucket", "region") if not getattr(self.blob, f)]
             if missing:
                 raise ValueError(f"incomplete_blob_provider_config:{','.join(missing)}")
-        if self.attestation.backend in {"thronos_network", "rpc_generic"}:
+        if self.attestation.backend == "thronos_network":
             missing = [
                 f
                 for f in ("target_network", "rpc_url", "chain_id", "contract_address", "signer_ref")
+                if not getattr(self.attestation, f)
+            ]
+            if missing:
+                raise ValueError(f"incomplete_attestation_provider_config:{','.join(missing)}")
+        if self.attestation.backend == "rpc_generic":
+            missing = [
+                f
+                for f in ("target_network", "rpc_url", "chain_id", "signer_ref", "backend_label", "rpc_submit_method")
                 if not getattr(self.attestation, f)
             ]
             if missing:
@@ -122,6 +134,8 @@ class ProviderConfigBoundary:
                 self.attestation.signer_ref,
                 self.attestation.gas_policy_ref,
                 self.attestation.backend_label,
+                self.attestation.rpc_submit_method,
+                self.attestation.rpc_poll_method,
             ]
         )
         if self.attestation.backend == "fake" and att_any:
@@ -132,6 +146,12 @@ class ProviderConfigBoundary:
 
         if self.attestation.backend == "thronos_network" and self.attestation.backend_label:
             raise ValueError("contradictory_attestation_backend_label_for_thronos")
+        if self.attestation.backend == "thronos_network" and (
+            self.attestation.rpc_submit_method or self.attestation.rpc_poll_method
+        ):
+            raise ValueError("contradictory_attestation_rpc_methods_for_thronos")
+        if self.attestation.backend == "rpc_generic" and self.attestation.contract_address:
+            raise ValueError("contradictory_attestation_contract_address_for_rpc_generic")
 
     def to_redacted_dict(self) -> dict:
         return {
@@ -164,6 +184,8 @@ class ProviderConfigBoundary:
                 "signer_ref": _redact_ref(self.attestation.signer_ref),
                 "gas_policy_ref": self.attestation.gas_policy_ref,
                 "backend_label": self.attestation.backend_label,
+                "rpc_submit_method": self.attestation.rpc_submit_method,
+                "rpc_poll_method": self.attestation.rpc_poll_method,
             },
         }
 
@@ -198,6 +220,8 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
         signer_ref=env.get("ATTESTATION_SIGNER_REF") or env.get("ATTESTATION_SIGNER_KEY_REF"),
         gas_policy_ref=env.get("ATTESTATION_GAS_POLICY_REF"),
         backend_label=env.get("ATTESTATION_BACKEND_LABEL"),
+        rpc_submit_method=env.get("ATTESTATION_RPC_SUBMIT_METHOD"),
+        rpc_poll_method=env.get("ATTESTATION_RPC_POLL_METHOD"),
     )
 
     boundary = ProviderConfigBoundary(
@@ -206,7 +230,16 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
         attestation=attestation,
         required_for_future_execute={
             "blob": ("provider", "bucket", "region", "local_root_path", "access_key_ref", "secret_key_ref"),
-            "attestation": ("rpc_url", "chain_id", "contract_address", "signer_ref", "target_network"),
+            "attestation": (
+                "rpc_url",
+                "chain_id",
+                "contract_address",
+                "signer_ref",
+                "target_network",
+                "backend_label",
+                "rpc_submit_method",
+                "rpc_poll_method",
+            ),
         },
     )
     boundary.validate_consistency()

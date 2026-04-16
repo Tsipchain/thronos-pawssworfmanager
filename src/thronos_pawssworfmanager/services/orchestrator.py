@@ -136,6 +136,17 @@ class CommandOrchestrator:
                 }
             }
         next_status = poll.get("confirmation_status", "unknown")
+        next_finality = poll.get("finality_status", attestation_receipt.get("finality_status", "unknown"))
+        next_proof = poll.get("confirmation_proof")
+        next_confirmation_id = poll.get("confirmation_id")
+        proof_error = self._validate_confirmation_proof_contract(
+            confirmation_status=next_status,
+            finality_status=next_finality,
+            confirmation_id=next_confirmation_id,
+            confirmation_proof=next_proof,
+        )
+        if proof_error is not None:
+            return proof_error
         allowed = self._ALLOWED_CONFIRMATION_TRANSITIONS.get(current_status, {"unknown"})
         if next_status not in allowed:
             return {
@@ -150,9 +161,16 @@ class CommandOrchestrator:
             }
 
         updated = dict(attestation_receipt)
+        replay_key = self._compute_replay_key(submission_id, tx_hash, reconciliation_id)
+
+        updated["finality_status"] = next_finality
+        updated["confirmation_proof"] = next_proof
         updated["confirmation_status"] = next_status
         updated["lifecycle_state"] = poll.get("lifecycle_state", updated.get("lifecycle_state", "submission_unknown"))
         updated["confirmation_id"] = poll.get("confirmation_id")
+        updated["replay_key"] = replay_key
+        updated["replay_observation_count"] = int(updated.get("replay_observation_count", 0)) + 1
+        updated["replay_state"] = self._derive_replay_state(attestation_receipt, updated)
         return {"attestation_receipt": updated}
 
     def _validate_manifest_binding(self, command_result: dict) -> dict | None:
@@ -344,7 +362,16 @@ class CommandOrchestrator:
                         tx_hash=submission.get("tx_hash"),
                         confirmation_id=submission.get("confirmation_id"),
                         confirmation_status=submission.get("confirmation_status", "not_polled"),
+                        finality_status=submission.get("finality_status", "not_finalized"),
+                        confirmation_proof=submission.get("confirmation_proof"),
                         reconciliation_id=submission.get("reconciliation_id"),
+                        replay_state="not_checked",
+                        replay_key=self._compute_replay_key(
+                            submission.get("submission_id"),
+                            submission.get("tx_hash"),
+                            submission.get("reconciliation_id"),
+                        ),
+                        replay_observation_count=0,
                         submitted_at=None,
                         attempts=attempts,
                         max_attempts=self.retry_policy.max_attempts,
@@ -388,3 +415,147 @@ class CommandOrchestrator:
                     }
                 }
         raise RuntimeError("unreachable_attest_loop")
+
+    @staticmethod
+    def _compute_replay_key(submission_id: str | None, tx_hash: str | None, reconciliation_id: str | None) -> str | None:
+        if not submission_id:
+            return None
+        tuple_payload = f"{submission_id}|{tx_hash or ''}|{reconciliation_id or ''}"
+        return hashlib.sha256(tuple_payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _derive_replay_state(previous: dict, updated: dict) -> str:
+        previous_replay_key = previous.get("replay_key")
+        updated_replay_key = updated.get("replay_key")
+        if not updated_replay_key:
+            return "not_checked"
+        if previous_replay_key is None:
+            return "first_observation"
+        same_tuple = previous_replay_key == updated_replay_key
+        same_outcome = (
+            previous.get("confirmation_status") == updated.get("confirmation_status")
+            and previous.get("finality_status") == updated.get("finality_status")
+            and previous.get("confirmation_id") == updated.get("confirmation_id")
+        )
+        if same_tuple and same_outcome:
+            return "repeated_observation_consistent"
+        return "repeated_observation_mismatch"
+
+    @staticmethod
+    def _validate_confirmation_proof_contract(
+        confirmation_status: str,
+        finality_status: str,
+        confirmation_id: str | None,
+        confirmation_proof: dict | None,
+    ) -> dict | None:
+        if confirmation_proof is None:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof is required",
+                }
+            }
+        if not isinstance(confirmation_proof, dict):
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof must be an object",
+                }
+            }
+        allowed_fields = {"proof_source", "proof_kind", "provider_status", "confirmation_id"}
+        extra_fields = set(confirmation_proof.keys()) - allowed_fields
+        if extra_fields:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": f"confirmation_proof has forbidden fields: {sorted(extra_fields)}",
+                }
+            }
+        required_fields = {"proof_source", "proof_kind", "provider_status"}
+        if not required_fields.issubset(set(confirmation_proof.keys())):
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof missing required fields",
+                }
+            }
+        for key in required_fields:
+            if not isinstance(confirmation_proof.get(key), str):
+                return {
+                    "error": {
+                        "stage": "attestation_reconciliation",
+                        "retryable": False,
+                        "failure_class": "permanent",
+                        "error_code": "invalid_confirmation_proof",
+                        "lifecycle_state": "submission_unknown",
+                        "message": f"confirmation_proof.{key} must be string",
+                    }
+                }
+        proof_confirmation_id = confirmation_proof.get("confirmation_id")
+        if proof_confirmation_id is not None and not isinstance(proof_confirmation_id, str):
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof.confirmation_id must be string when present",
+                }
+            }
+        if confirmation_proof["proof_source"] != "thronos_rpc" or confirmation_proof["proof_kind"] != "status_attestation":
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof source/kind invalid",
+                }
+            }
+        provider_status = confirmation_proof["provider_status"]
+        expected_statuses = {
+            "confirmed": {"finalized"} if finality_status == "finalized" else {"confirmed"},
+            "still_pending": {"pending", "submitted"},
+            "rejected_or_dropped": {"rejected", "dropped"},
+        }
+        if confirmation_status in expected_statuses and provider_status not in expected_statuses[confirmation_status]:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof provider_status inconsistent with confirmation/finality status",
+                }
+            }
+        if confirmation_id != proof_confirmation_id:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_proof",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "confirmation_proof.confirmation_id mismatch",
+                }
+            }
+        return None

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import os
 
-from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter, RealThronosAttestationAdapter
+from .adapters.attestation import (
+    DryRunChainAttestationAdapter,
+    FakeAttestationAdapter,
+    GenericRpcAttestationAdapter,
+    RealThronosAttestationAdapter,
+)
 from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage, LocalFileBlobStorage
 from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
 from .adapters.execution_gating import evaluate_execution_gates
@@ -56,6 +61,25 @@ else:
     )
 if _ADAPTER_CONFIG.attestation_backend == "fake":
     _ATTESTATION = FakeAttestationAdapter()
+elif _ADAPTER_CONFIG.attestation_backend == "rpc_generic":
+    if not (
+        _PROVIDER_CONFIG.attestation.rpc_url
+        and _PROVIDER_CONFIG.attestation.chain_id
+        and _PROVIDER_CONFIG.attestation.signer_ref
+        and _PROVIDER_CONFIG.attestation.target_network
+        and _PROVIDER_CONFIG.attestation.backend_label
+        and _PROVIDER_CONFIG.attestation.rpc_submit_method
+    ):
+        raise ValueError("incomplete_rpc_generic_attestation_provider_config")
+    _ATTESTATION = GenericRpcAttestationAdapter(
+        rpc_url=_PROVIDER_CONFIG.attestation.rpc_url,
+        chain_id=_PROVIDER_CONFIG.attestation.chain_id,
+        network=_PROVIDER_CONFIG.attestation.target_network,
+        backend_label=_PROVIDER_CONFIG.attestation.backend_label,
+        rpc_submit_method=_PROVIDER_CONFIG.attestation.rpc_submit_method,
+        rpc_poll_method=_PROVIDER_CONFIG.attestation.rpc_poll_method or "status_lookup_not_configured",
+        exec_enabled=False,
+    )
 elif _ADAPTER_CONFIG.attestation_backend == "thronos_network" and _EXECUTION_GATES.execution_enabled:
     if not (
         _PROVIDER_CONFIG.attestation.rpc_url
@@ -91,6 +115,21 @@ _ORCHESTRATOR = CommandOrchestrator(
     idempotency_scope=_ADAPTER_CONFIG.idempotency_scope,
     execution_enabled=_EXECUTION_GATES.execution_enabled,
 )
+
+
+def _rpc_generic_policy_contract() -> dict:
+    selected = _ADAPTER_CONFIG.attestation_backend == "rpc_generic"
+    pair = f"rpc_generic+{_ADAPTER_CONFIG.execution_mode}"
+    matrix = _EXECUTION_POLICY["matrix"]["attestation"]
+    return {
+        "selected_backend": selected,
+        "policy_pair": pair,
+        "policy_allows_pair": bool(matrix.get(pair, False)),
+        "execute_forbidden_in_m13_1": True,
+        "readiness": selected and _ADAPTER_CONFIG.execution_mode == "dry_run",
+        "enabled": False,
+        "denial_reason": "policy_forbids_generic_rpc_execute_in_m13_1",
+    }
 
 
 def _capability_report() -> dict:
@@ -129,6 +168,7 @@ def _capability_report() -> dict:
             "execution_enabled": _EXECUTION_GATES.execution_enabled,
             "attestation_execution_ready": _EXECUTION_GATES.execution_ready and _EXECUTION_POLICY["attestation_allowed"],
             "attestation_execution_enabled": _EXECUTION_GATES.execution_enabled and _EXECUTION_POLICY["attestation_allowed"],
+            "rpc_generic_policy": _rpc_generic_policy_contract(),
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -149,7 +189,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m11-thronos-finality-polling-reconciliation",
+        "phase": "m13.1-generic-rpc-execution-policy-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
@@ -159,6 +199,7 @@ def _service_metadata() -> dict:
         "execution_enabled": _EXECUTION_GATES.execution_enabled,
         "attestation_execution_ready": _EXECUTION_GATES.execution_ready and _EXECUTION_POLICY["attestation_allowed"],
         "attestation_execution_enabled": _EXECUTION_GATES.execution_enabled and _EXECUTION_POLICY["attestation_allowed"],
+        "rpc_generic_policy": _rpc_generic_policy_contract(),
     }
 
 

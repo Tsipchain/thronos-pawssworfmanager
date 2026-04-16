@@ -77,6 +77,16 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertIn("attestation_execution_ready", adapters)
         self.assertIn("attestation_execution_enabled", adapters)
         self.assertFalse(adapters["attestation_execution_enabled"])
+        self.assertIn("rpc_generic_policy", adapters)
+        self.assertFalse(adapters["rpc_generic_policy"]["enabled"])
+        self.assertTrue(adapters["rpc_generic_policy"]["execute_forbidden_in_m13_1"])
+
+    def test_metadata_reports_rpc_generic_policy_contract(self):
+        shell = create_runtime_shell()
+        data = shell.handle("GET", "/v1/metadata").body["data"]
+        self.assertIn("rpc_generic_policy", data)
+        self.assertFalse(data["rpc_generic_policy"]["enabled"])
+        self.assertIn("denial_reason", data["rpc_generic_policy"])
 
     def test_config_includes_execution_gate_contract(self):
         shell = create_runtime_shell()
