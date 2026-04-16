@@ -21,14 +21,18 @@ from thronos_pawssworfmanager.adapters.manifest_store import InMemoryManifestSto
 
 class TestAdapters(unittest.TestCase):
     @staticmethod
-    def _payload(manifest_hash: str = "abcdef123") -> AttestationPayload:
+    def _payload(
+        manifest_hash: str = "abcdef123",
+        target_backend_type: str = "fake",
+        target_network: str = "none",
+    ) -> AttestationPayload:
         return AttestationPayload(
             manifest_hash=manifest_hash,
             manifest_version=1,
             attestation_schema_version="v1",
             source_system="test-suite",
-            target_backend_type="fake",
-            target_network="none",
+            target_backend_type=target_backend_type,
+            target_network=target_network,
             metadata={},
         )
 
@@ -146,10 +150,10 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=False,
-            rpc_post_fn=lambda *_args, **_kwargs: {"tx_hash": "0x1"},
+            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "result": {"tx_hash": "0x" + "1" * 64}},
         )
         with self.assertRaises(AttestationAdapterError) as err:
-            a.submit_attestation(self._payload())
+            a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
         self.assertEqual(err.exception.code, "attestation_execution_disabled")
 
     def test_real_thronos_attestation_adapter_executes_when_enabled(self):
@@ -160,22 +164,73 @@ class TestAdapters(unittest.TestCase):
             signer_ref="ref://signer",
             network="thronos-mainnet",
             exec_enabled=True,
-            rpc_post_fn=lambda *_args, **_kwargs: {"tx_hash": "0x1234", "attestation_id": "att-real-1"},
+            rpc_post_fn=lambda *_args, **_kwargs: {
+                "jsonrpc": "2.0",
+                "result": {"status": "accepted", "tx_hash": "0x" + "a" * 64, "attestation_id": "att-real-1"},
+            },
         )
         submission = a.submit_attestation(
-            AttestationPayload(
-                manifest_hash="abcdef123",
-                manifest_version=1,
-                attestation_schema_version="v1",
-                source_system="test-suite",
-                target_backend_type="thronos_network",
-                target_network="thronos-mainnet",
-                metadata={},
-            )
+            self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet")
         )
         self.assertEqual(submission["status"], "submitted")
-        self.assertEqual(submission["tx_hash"], "0x1234")
+        self.assertEqual(submission["tx_hash"], "0x" + "a" * 64)
         self.assertFalse(submission["dry_run"])
+
+    def test_real_thronos_attestation_adapter_rejects_malformed_rpc_success(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"result": {"tx_hash": "0x" + "b" * 64}},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
+        self.assertEqual(err.exception.code, "attestation_rpc_malformed_envelope")
+
+    def test_real_thronos_attestation_adapter_rejects_rpc_error(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "error": {"code": -32000, "message": "revert"}},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
+        self.assertEqual(err.exception.code, "attestation_rpc_error")
+
+    def test_real_thronos_attestation_adapter_rejects_missing_tx_hash(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "result": {"status": "accepted"}},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
+        self.assertEqual(err.exception.code, "attestation_invalid_tx_hash")
+
+    def test_real_thronos_attestation_adapter_rejects_invalid_tx_hash(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"jsonrpc": "2.0", "result": {"status": "accepted", "tx_hash": "0x1234"}},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
+        self.assertEqual(err.exception.code, "attestation_invalid_tx_hash")
 
     def test_static_identity(self):
         i = StaticIdentity()

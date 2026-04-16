@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 from urllib.error import URLError
@@ -162,7 +163,7 @@ class RealThronosAttestationAdapter:
             }
         ]
         try:
-            result = self._rpc_post(self.rpc_url, "thronos_submitAttestation", params)
+            rpc_doc = self._rpc_post(self.rpc_url, "thronos_submitAttestation", params)
         except TimeoutError as exc:
             raise AttestationAdapterError("attestation_rpc_timeout", "transient", str(exc)) from exc
         except URLError as exc:
@@ -170,8 +171,9 @@ class RealThronosAttestationAdapter:
         except Exception as exc:
             raise AttestationAdapterError("attestation_submit_failed", "unknown", str(exc)) from exc
 
-        tx_hash = result.get("tx_hash")
-        attestation_id = result.get("attestation_id") or (f"thronos_{tx_hash[:10]}" if isinstance(tx_hash, str) else None)
+        result = _validate_rpc_submission_result(rpc_doc)
+        tx_hash = result["tx_hash"]
+        attestation_id = result.get("attestation_id") or f"thronos_{tx_hash[:10]}"
         return {
             "status": "submitted",
             "attestation_id": attestation_id,
@@ -205,7 +207,30 @@ def _json_rpc_post(rpc_url: str, method: str, params: list[dict]) -> dict:
     body = json.dumps(payload).encode("utf-8")
     req = Request(rpc_url, data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(req, timeout=10) as resp:
-        doc = json.loads(resp.read().decode("utf-8"))
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _validate_rpc_submission_result(doc: dict) -> dict:
+    if not isinstance(doc, dict):
+        raise AttestationAdapterError("attestation_rpc_malformed_envelope", "permanent", "rpc response is not an object")
+    if doc.get("jsonrpc") != "2.0":
+        raise AttestationAdapterError("attestation_rpc_malformed_envelope", "permanent", "rpc jsonrpc field invalid")
     if "error" in doc:
-        raise RuntimeError(f"rpc_error:{doc['error']}")
-    return doc.get("result", {})
+        raise AttestationAdapterError("attestation_rpc_error", "permanent", f"rpc error: {doc['error']}")
+
+    result = doc.get("result")
+    if not isinstance(result, dict):
+        raise AttestationAdapterError("attestation_rpc_malformed_result", "permanent", "rpc result missing or invalid")
+
+    rpc_status = result.get("status")
+    if rpc_status is not None and rpc_status not in {"accepted", "submitted"}:
+        raise AttestationAdapterError("attestation_submission_rejected", "permanent", f"submission status: {rpc_status}")
+
+    tx_hash = result.get("tx_hash")
+    if not isinstance(tx_hash, str) or not re.fullmatch(r"0x[a-fA-F0-9]{64}", tx_hash):
+        raise AttestationAdapterError("attestation_invalid_tx_hash", "permanent", "tx hash missing or invalid")
+
+    attestation_id = result.get("attestation_id")
+    if attestation_id is not None and not isinstance(attestation_id, str):
+        raise AttestationAdapterError("attestation_malformed_attestation_id", "permanent", "attestation_id must be string")
+    return result
