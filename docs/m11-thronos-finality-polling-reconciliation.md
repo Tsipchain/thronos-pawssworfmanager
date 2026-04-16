@@ -26,10 +26,20 @@ Invalid transitions are fail-closed.
 
 After reconciliation:
 
-- `confirmed` means provider reports finalized/confirmed state for that submission.
+- `confirmed` means the provider reports finalized/confirmed state for the tuple
+  `(submission_id, tx_hash, reconciliation_id)` used during polling.
+  This proves backend-observed finality for that tuple and may include a
+  `confirmation_id` that can be logged for audit correlation.
 - `still_pending` means no finality signal yet.
 - `rejected_or_dropped` means provider indicates rejection/drop.
 - `unknown` means status cannot be proven from current response.
+
+What this does **not** prove:
+
+- on-chain inclusion proofs outside the provider response boundary
+- multi-provider consensus/finality
+- replay-protection/nonce guarantees
+- cross-domain settlement semantics
 
 ## Out of scope
 
@@ -37,3 +47,4 @@ After reconciliation:
 - wallet auth/cross-chain payment logic
 - nonce management and replay protection runtime
 - encryption runtime / DB / distributed coordination
+- durable background pollers and distributed reconciliation coordination

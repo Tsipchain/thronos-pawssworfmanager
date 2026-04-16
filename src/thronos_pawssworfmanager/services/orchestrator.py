@@ -89,7 +89,30 @@ class CommandOrchestrator:
         reconciliation_id = attestation_receipt.get("reconciliation_id")
         current_status = attestation_receipt.get("confirmation_status", "not_polled")
 
-        poll = self.attestation.poll_attestation(submission_id, tx_hash, reconciliation_id)
+        try:
+            poll = self.attestation.poll_attestation(submission_id, tx_hash, reconciliation_id)
+        except AttestationAdapterError as exc:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": exc.failure_class == "transient",
+                    "failure_class": exc.failure_class,
+                    "error_code": exc.code,
+                    "lifecycle_state": exc.lifecycle_state,
+                    "message": str(exc),
+                }
+            }
+        except Exception as exc:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "unknown",
+                    "error_code": "attestation_reconciliation_failed",
+                    "lifecycle_state": "submission_unknown",
+                    "message": str(exc),
+                }
+            }
         next_status = poll.get("confirmation_status", "unknown")
         allowed = self._ALLOWED_CONFIRMATION_TRANSITIONS.get(current_status, {"unknown"})
         if next_status not in allowed:
