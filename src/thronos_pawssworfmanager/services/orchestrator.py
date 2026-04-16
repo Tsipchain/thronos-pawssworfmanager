@@ -14,6 +14,14 @@ from .retry_semantics import RetryPolicy, classify_failure, is_retryable
 
 
 class CommandOrchestrator:
+    _ALLOWED_CONFIRMATION_TRANSITIONS = {
+        "not_polled": {"still_pending", "confirmed", "rejected_or_dropped", "unknown"},
+        "still_pending": {"still_pending", "confirmed", "rejected_or_dropped", "unknown"},
+        "unknown": {"still_pending", "confirmed", "rejected_or_dropped", "unknown"},
+        "confirmed": {"confirmed"},
+        "rejected_or_dropped": {"rejected_or_dropped"},
+    }
+
     def __init__(
         self,
         manifest_store: ManifestStoreAdapter,
@@ -74,6 +82,78 @@ class CommandOrchestrator:
             "blob_receipt": blob_receipt.to_dict(),
             "attestation_receipt": attestation.to_dict(),
         }
+
+    def reconcile_attestation_receipt(self, attestation_receipt: dict) -> dict:
+        submission_id = attestation_receipt.get("submission_id")
+        tx_hash = attestation_receipt.get("tx_hash")
+        reconciliation_id = attestation_receipt.get("reconciliation_id")
+        current_status = attestation_receipt.get("confirmation_status", "not_polled")
+        if not submission_id:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_reconciliation_tuple",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "submission_id is required for reconciliation",
+                }
+            }
+        if tx_hash is None and reconciliation_id is None:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_reconciliation_tuple",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "either tx_hash or reconciliation_id is required for reconciliation",
+                }
+            }
+
+        try:
+            poll = self.attestation.poll_attestation(submission_id, tx_hash, reconciliation_id)
+        except AttestationAdapterError as exc:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": exc.failure_class == "transient",
+                    "failure_class": exc.failure_class,
+                    "error_code": exc.code,
+                    "lifecycle_state": exc.lifecycle_state,
+                    "message": str(exc),
+                }
+            }
+        except Exception as exc:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "unknown",
+                    "error_code": "attestation_reconciliation_failed",
+                    "lifecycle_state": "submission_unknown",
+                    "message": str(exc),
+                }
+            }
+        next_status = poll.get("confirmation_status", "unknown")
+        allowed = self._ALLOWED_CONFIRMATION_TRANSITIONS.get(current_status, {"unknown"})
+        if next_status not in allowed:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_confirmation_transition",
+                    "lifecycle_state": "submission_unknown",
+                    "message": f"invalid transition {current_status}->{next_status}",
+                }
+            }
+
+        updated = dict(attestation_receipt)
+        updated["confirmation_status"] = next_status
+        updated["lifecycle_state"] = poll.get("lifecycle_state", updated.get("lifecycle_state", "submission_unknown"))
+        updated["confirmation_id"] = poll.get("confirmation_id")
+        return {"attestation_receipt": updated}
 
     def _validate_manifest_binding(self, command_result: dict) -> dict | None:
         try:
@@ -258,8 +338,13 @@ class CommandOrchestrator:
                         backend=self.attestation_backend,
                         network=submission.get("network", "unknown"),
                         status=submission.get("status", "unknown"),
+                        lifecycle_state=submission.get("lifecycle_state", "submission_unknown"),
                         attestation_id=submission.get("attestation_id"),
+                        submission_id=submission.get("submission_id"),
                         tx_hash=submission.get("tx_hash"),
+                        confirmation_id=submission.get("confirmation_id"),
+                        confirmation_status=submission.get("confirmation_status", "not_polled"),
+                        reconciliation_id=submission.get("reconciliation_id"),
                         submitted_at=None,
                         attempts=attempts,
                         max_attempts=self.retry_policy.max_attempts,
@@ -280,6 +365,7 @@ class CommandOrchestrator:
                         "retryable": retryable,
                         "failure_class": exc.failure_class,
                         "error_code": exc.code,
+                        "lifecycle_state": exc.lifecycle_state,
                         "attempts": attempts,
                         "max_attempts": self.retry_policy.max_attempts,
                         "message": str(exc),
@@ -295,6 +381,7 @@ class CommandOrchestrator:
                         "retryable": retryable,
                         "failure_class": classify_failure(exc),
                         "error_code": "attestation_submit_failed",
+                        "lifecycle_state": "submission_unknown",
                         "attempts": attempts,
                         "max_attempts": self.retry_policy.max_attempts,
                         "message": str(exc),
