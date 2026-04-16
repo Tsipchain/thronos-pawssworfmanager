@@ -73,9 +73,9 @@ class PollingAttestationAdapter(FakeAttestationAdapter):
 class FailingPollAttestationAdapter(FakeAttestationAdapter):
     def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
         raise AttestationAdapterError(
-            "attestation_poll_missing_submission_id",
+            "attestation_poll_failed",
             "permanent",
-            "submission_id required for polling",
+            "poll failed",
             "submission_unknown",
         )
 
@@ -522,11 +522,41 @@ class TestOrchestrator(unittest.TestCase):
             {
                 "confirmation_status": "not_polled",
                 "lifecycle_state": "submitted_not_finalized",
-                "submission_id": None,
+                "submission_id": "sub_abc",
                 "tx_hash": "0x" + "a" * 64,
                 "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
             }
         )
         self.assertEqual(out["error"]["stage"], "attestation_reconciliation")
-        self.assertEqual(out["error"]["error_code"], "attestation_poll_missing_submission_id")
+        self.assertEqual(out["error"]["error_code"], "attestation_poll_failed")
         self.assertEqual(out["error"]["lifecycle_state"], "submission_unknown")
+
+    def test_reconcile_attestation_receipt_rejects_missing_submission_id(self):
+        store = InMemoryManifestStore()
+        att = PollingAttestationAdapter("still_pending", "submitted_not_finalized")
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "not_polled",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": None,
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["error"]["error_code"], "invalid_reconciliation_tuple")
+
+    def test_reconcile_attestation_receipt_requires_tx_hash_or_reconciliation_id(self):
+        store = InMemoryManifestStore()
+        att = PollingAttestationAdapter("still_pending", "submitted_not_finalized")
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "not_polled",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": None,
+                "reconciliation_id": None,
+            }
+        )
+        self.assertEqual(out["error"]["error_code"], "invalid_reconciliation_tuple")

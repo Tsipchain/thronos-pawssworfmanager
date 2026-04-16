@@ -17,6 +17,8 @@ Identity tuple rules for polling:
 - `reconciliation_id` must be `"<network>:<tx_hash>"`
 - if only `reconciliation_id` is supplied, `<tx_hash>` is used for polling
 - if both `tx_hash` and `reconciliation_id` are supplied, they must match
+- reconciliation requests are rejected if `submission_id` is missing
+- reconciliation requests are rejected if both `tx_hash` and `reconciliation_id` are missing
 
 ## Confirmation transitions
 

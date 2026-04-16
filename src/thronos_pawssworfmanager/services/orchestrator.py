@@ -88,6 +88,28 @@ class CommandOrchestrator:
         tx_hash = attestation_receipt.get("tx_hash")
         reconciliation_id = attestation_receipt.get("reconciliation_id")
         current_status = attestation_receipt.get("confirmation_status", "not_polled")
+        if not submission_id:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_reconciliation_tuple",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "submission_id is required for reconciliation",
+                }
+            }
+        if tx_hash is None and reconciliation_id is None:
+            return {
+                "error": {
+                    "stage": "attestation_reconciliation",
+                    "retryable": False,
+                    "failure_class": "permanent",
+                    "error_code": "invalid_reconciliation_tuple",
+                    "lifecycle_state": "submission_unknown",
+                    "message": "either tx_hash or reconciliation_id is required for reconciliation",
+                }
+            }
 
         try:
             poll = self.attestation.poll_attestation(submission_id, tx_hash, reconciliation_id)
