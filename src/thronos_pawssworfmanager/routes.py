@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 
 from .adapters.attestation import DryRunChainAttestationAdapter, FakeAttestationAdapter
-from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage
+from .adapters.blob_storage import DryRunBlobStorageProvider, InMemoryBlobStorage, LocalFileBlobStorage
 from .adapters.config import backend_selection_policy, execution_policy_status, resolve_adapter_config
+from .adapters.execution_gating import evaluate_execution_gates
 from .adapters.identity import StaticIdentity
 from .adapters.manifest_store import InMemoryManifestStore
+from .adapters.provider_config import load_provider_config_boundary
 from .api_versioning import DEFAULT_API_VERSION, SUPPORTED_API_VERSIONS
 from .canonical_manifest import REQUIRED_TOP_LEVEL_FIELDS
 from .contracts import error_contract, success_contract
@@ -28,15 +30,30 @@ from .startup_validation import validate_data_paths
 _ADAPTER_CONFIG = resolve_adapter_config(os.environ)
 _SELECTION_POLICY = backend_selection_policy()
 _EXECUTION_POLICY = execution_policy_status(_ADAPTER_CONFIG)
+_PROVIDER_CONFIG = load_provider_config_boundary(os.environ, _ADAPTER_CONFIG)
+_ENABLE_REAL_EXECUTION = os.getenv("ENABLE_REAL_EXECUTION", "false").lower() == "true"
+_EXECUTION_GATES = evaluate_execution_gates(
+    enable_real_execution=_ENABLE_REAL_EXECUTION,
+    execution_mode=_ADAPTER_CONFIG.execution_mode,
+    policy_allows=bool(_EXECUTION_POLICY.get("startup_allowed")),
+    provider_config_complete=True,
+    secrets_boundary_satisfied=True,
+)
+if _ENABLE_REAL_EXECUTION and not _EXECUTION_GATES.execution_enabled:
+    raise ValueError(f"real_execution_gate_denied:{','.join(_EXECUTION_GATES.denial_reasons)}")
 _MANIFEST_STORE = InMemoryManifestStore()
-_BLOB_STORAGE = (
-    InMemoryBlobStorage()
-    if _ADAPTER_CONFIG.blob_storage_backend == "in_memory"
-    else DryRunBlobStorageProvider(
+if _ADAPTER_CONFIG.blob_storage_backend == "in_memory":
+    _BLOB_STORAGE = InMemoryBlobStorage()
+elif _ADAPTER_CONFIG.blob_storage_backend == "local_fs":
+    _local_root = _PROVIDER_CONFIG.blob.local_root_path
+    if not _local_root:
+        raise ValueError("blob_local_root_required")
+    _BLOB_STORAGE = LocalFileBlobStorage(_local_root, exec_enabled=_EXECUTION_GATES.execution_enabled)
+else:
+    _BLOB_STORAGE = DryRunBlobStorageProvider(
         _ADAPTER_CONFIG.blob_storage_backend,
         exec_enabled=not _ADAPTER_CONFIG.dry_run_enabled,
     )
-)
 _ATTESTATION = (
     FakeAttestationAdapter()
     if _ADAPTER_CONFIG.attestation_backend == "fake"
@@ -50,9 +67,12 @@ _IDENTITY = StaticIdentity()
 _ORCHESTRATOR = CommandOrchestrator(
     _MANIFEST_STORE,
     _ATTESTATION,
+    blob_storage=_BLOB_STORAGE,
     manifest_backend=_ADAPTER_CONFIG.manifest_store_backend,
+    blob_backend=_ADAPTER_CONFIG.blob_storage_backend,
     attestation_backend=_ADAPTER_CONFIG.attestation_backend,
     idempotency_scope=_ADAPTER_CONFIG.idempotency_scope,
+    execution_enabled=_EXECUTION_GATES.execution_enabled,
 )
 
 
@@ -84,6 +104,10 @@ def _capability_report() -> dict:
             "idempotency_scope": _ADAPTER_CONFIG.idempotency_scope,
             "blob_capabilities": _BLOB_STORAGE.capabilities(),
             "attestation_capabilities": _ATTESTATION.capabilities(),
+            "provider_config_boundary": _PROVIDER_CONFIG.to_redacted_dict(),
+            "execution_gates": _EXECUTION_GATES.to_dict(),
+            "execution_ready": _EXECUTION_GATES.execution_ready,
+            "execution_enabled": _EXECUTION_GATES.execution_enabled,
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -104,10 +128,14 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m5.1-execution-policy-hardening",
+        "phase": "m8.1-blob-execution-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
+        "secret_policy_enforced": True,
+        "secret_backed_adapters": ["blob_storage", "attestation"],
+        "execution_ready": _EXECUTION_GATES.execution_ready,
+        "execution_enabled": _EXECUTION_GATES.execution_enabled,
     }
 
 
@@ -138,6 +166,8 @@ def register_runtime_routes(shell: RuntimeShell) -> None:
                     "hash_policy": hash_policy_id(),
                     "manifest_required_fields": list(REQUIRED_TOP_LEVEL_FIELDS),
                     "routes": [f"{method} {path}" for method, path in shell.routes()],
+                    "provider_config": _PROVIDER_CONFIG.to_redacted_dict(),
+                    "execution_gates": _EXECUTION_GATES.to_dict(),
                 }
             ),
         ),

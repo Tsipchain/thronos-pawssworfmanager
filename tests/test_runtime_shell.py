@@ -42,6 +42,38 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertEqual(adapters["execution_policy"]["enforcement"], "fail_closed")
         self.assertTrue(adapters["blob_capabilities"]["dry_run_supported"])
         self.assertTrue(adapters["attestation_capabilities"]["dry_run_supported"])
+        self.assertIn("provider_config_boundary", adapters)
+        self.assertIn("execution_gates", adapters)
+        self.assertFalse(adapters["execution_ready"])
+        self.assertFalse(adapters["execution_enabled"])
+
+    def test_no_forbidden_secret_fields_exposed_in_config_caps_metadata(self):
+        shell = create_runtime_shell()
+        cfg = shell.handle("GET", "/v1/config").body["data"]
+        caps = shell.handle("GET", "/v1/capabilities").body["data"]
+        meta = shell.handle("GET", "/v1/metadata").body["data"]
+        combined = str({"cfg": cfg, "caps": caps, "meta": meta})
+        self.assertNotIn("BLOB_ACCESS_KEY", combined)
+        self.assertNotIn("BLOB_SECRET_KEY", combined)
+        self.assertNotIn("ATTESTATION_SIGNER_KEY", combined)
+        self.assertNotIn("raw-secret", combined)
+        self.assertNotIn("env://", combined)
+
+    def test_provider_boundary_reports_classification_and_redaction_matrix(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("GET", "/v1/capabilities")
+        provider = resp.body["data"]["adapters"]["provider_config_boundary"]
+        self.assertEqual(provider["field_classification"]["blob"]["access_key_ref"], "sensitive_ref")
+        self.assertEqual(provider["field_classification"]["blob"]["access_key_raw"], "forbidden_raw")
+        self.assertEqual(provider["redaction_matrix"]["forbidden_raw"], "never_report_and_refuse_startup_if_set")
+
+    def test_config_includes_execution_gate_contract(self):
+        shell = create_runtime_shell()
+        resp = shell.handle("GET", "/v1/config")
+        self.assertEqual(resp.status, 200)
+        gates = resp.body["data"]["execution_gates"]
+        self.assertFalse(gates["execution_enabled"])
+        self.assertIn("execution_mode_not_execute", gates["denial_reasons"])
 
     def test_command_execute_success(self):
         shell = create_runtime_shell()
@@ -132,6 +164,10 @@ class TestRuntimeShell(unittest.TestCase):
         resp = shell.handle("GET", "/v1/metadata")
         self.assertEqual(resp.status, 200)
         self.assertTrue(resp.body["data"]["execution_policy_enforced"])
+        self.assertTrue(resp.body["data"]["secret_policy_enforced"])
+        self.assertIn("blob_storage", resp.body["data"]["secret_backed_adapters"])
+        self.assertFalse(resp.body["data"]["execution_ready"])
+        self.assertFalse(resp.body["data"]["execution_enabled"])
 
     def test_invalid_api_version(self):
         shell = create_runtime_shell()
