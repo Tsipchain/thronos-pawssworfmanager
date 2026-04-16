@@ -20,7 +20,7 @@ def create_app(validate_paths: bool = False) -> dict:
 
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m9-chain-agnostic-attestation-prep",
+        "phase": "m10-first-real-thronos-attestation-execution-gated",
         "capabilities": [
             "canonical-manifest",
             "state-hash",
@@ -31,6 +31,7 @@ def create_app(validate_paths: bool = False) -> dict:
             "internal-command-contract-layer",
             "deterministic-command-pipeline",
             "chain-agnostic-attestation-prep",
+            "thronos-attestation-execute-gated",
         ],
         "disabled_sensitive_features": [
             "auth-runtime",

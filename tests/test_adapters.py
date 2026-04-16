@@ -3,9 +3,11 @@ import unittest
 from unittest import mock
 
 from thronos_pawssworfmanager.adapters.attestation import (
+    AttestationAdapterError,
     AttestationPayload,
     DryRunChainAttestationAdapter,
     FakeAttestationAdapter,
+    RealThronosAttestationAdapter,
 )
 from thronos_pawssworfmanager.adapters.blob_storage import (
     BlobStorageError,
@@ -135,6 +137,45 @@ class TestAdapters(unittest.TestCase):
         a = DryRunChainAttestationAdapter("thronos_network", network="thronos-mainnet", simulate_failure=True)
         with self.assertRaises(TimeoutError):
             a.submit_attestation(self._payload())
+
+    def test_real_thronos_attestation_adapter_disabled_gate_blocks_submission(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=False,
+            rpc_post_fn=lambda *_args, **_kwargs: {"tx_hash": "0x1"},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(self._payload())
+        self.assertEqual(err.exception.code, "attestation_execution_disabled")
+
+    def test_real_thronos_attestation_adapter_executes_when_enabled(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"tx_hash": "0x1234", "attestation_id": "att-real-1"},
+        )
+        submission = a.submit_attestation(
+            AttestationPayload(
+                manifest_hash="abcdef123",
+                manifest_version=1,
+                attestation_schema_version="v1",
+                source_system="test-suite",
+                target_backend_type="thronos_network",
+                target_network="thronos-mainnet",
+                metadata={},
+            )
+        )
+        self.assertEqual(submission["status"], "submitted")
+        self.assertEqual(submission["tx_hash"], "0x1234")
+        self.assertFalse(submission["dry_run"])
 
     def test_static_identity(self):
         i = StaticIdentity()

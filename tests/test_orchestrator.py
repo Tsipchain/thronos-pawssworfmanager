@@ -2,7 +2,7 @@ import base64
 import tempfile
 import unittest
 
-from thronos_pawssworfmanager.adapters.attestation import FakeAttestationAdapter
+from thronos_pawssworfmanager.adapters.attestation import FakeAttestationAdapter, RealThronosAttestationAdapter
 from thronos_pawssworfmanager.adapters.blob_storage import LocalFileBlobStorage
 from thronos_pawssworfmanager.adapters.manifest_store import InMemoryManifestStore
 from thronos_pawssworfmanager.state_hash import compute_manifest_hash
@@ -243,6 +243,34 @@ class TestOrchestrator(unittest.TestCase):
         out = orch.execute(command_result)
         self.assertEqual(att.calls, 2)
         self.assertEqual(out["attestation_receipt"]["attempts"], 2)
+
+    def test_attestation_receipt_real_thronos_submission_shape(self):
+        store = InMemoryManifestStore()
+        att = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda *_args, **_kwargs: {"tx_hash": "0xaaa", "attestation_id": "att-real-1"},
+        )
+        orch = CommandOrchestrator(store, att, attestation_backend="thronos_network")
+        command_result = {
+            "manifest": {"vault_id": "v1", "version": 1, "entries": []},
+            "canonical_bytes": "ignored",
+            "canonical_bytes_encoding": "base64",
+            "manifest_hash": "abcd1234",
+            "chain_node": {"version": 1, "manifest_hash": "abcd1234", "parent_hash": None},
+        }
+        out = orch.execute(command_result)
+        receipt = out["attestation_receipt"]
+        self.assertEqual(receipt["backend"], "thronos_network")
+        self.assertEqual(receipt["network"], "thronos-mainnet")
+        self.assertEqual(receipt["status"], "submitted")
+        self.assertEqual(receipt["tx_hash"], "0xaaa")
+        self.assertEqual(receipt["execution_mode"], "execute")
+        self.assertFalse(receipt["dry_run"])
 
     def test_attestation_payload_shape_excludes_sensitive_content(self):
         store = InMemoryManifestStore()

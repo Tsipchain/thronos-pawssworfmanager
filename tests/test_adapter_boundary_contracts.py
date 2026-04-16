@@ -39,8 +39,10 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertFalse(matrix["blob_storage"]["cloud_like+execute"])
         self.assertTrue(matrix["attestation"]["fake+dry_run"])
         self.assertTrue(matrix["attestation"]["fake+execute"])
-        self.assertTrue(matrix["attestation"]["chain_like+dry_run"])
-        self.assertFalse(matrix["attestation"]["chain_like+execute"])
+        self.assertTrue(matrix["attestation"]["thronos_network+dry_run"])
+        self.assertTrue(matrix["attestation"]["thronos_network+execute"])
+        self.assertTrue(matrix["attestation"]["rpc_generic+dry_run"])
+        self.assertFalse(matrix["attestation"]["rpc_generic+execute"])
 
     def test_resolve_adapter_config_allows_in_memory_dry_run_and_execute(self):
         cfg_a = resolve_adapter_config({"BLOB_STORAGE_BACKEND": "in_memory", "ADAPTER_EXECUTION_MODE": "dry_run"})
@@ -65,11 +67,11 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertEqual(cfg_a.attestation_backend, "fake")
         self.assertEqual(cfg_b.execution_mode, "execute")
 
-    def test_resolve_adapter_config_allows_chain_attestation_only_in_dry_run(self):
+    def test_resolve_adapter_config_allows_thronos_attestation_execute(self):
         cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "dry_run"})
         self.assertEqual(cfg.attestation_backend, "thronos_network")
-        with self.assertRaises(ValueError):
-            resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "execute"})
+        cfg_execute = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "execute"})
+        self.assertEqual(cfg_execute.execution_mode, "execute")
 
     def test_resolve_adapter_config_rejects_unsupported_backend(self):
         with self.assertRaises(ValueError):
@@ -118,6 +120,11 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         )
         self.assertEqual(boundary.blob.bucket, "bucket-a")
         self.assertEqual(boundary.attestation.chain_id, "42")
+
+    def test_provider_config_incomplete_fails_for_thronos_execute_mode(self):
+        cfg = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "execute"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary({"ATTESTATION_RPC_URL": "https://rpc.example"}, cfg)
 
     def test_provider_config_boundary_rejects_plaintext_secrets(self):
         cfg = resolve_adapter_config({})

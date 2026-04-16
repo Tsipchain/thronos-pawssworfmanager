@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 
-from ..adapters.attestation import AttestationAdapter, AttestationPayload
+from ..adapters.attestation import AttestationAdapter, AttestationAdapterError, AttestationPayload
 from ..adapters.blob_storage import BlobStorageAdapter, BlobStorageError
 from ..adapters.manifest_store import ManifestStoreAdapter
 from ..adapters.schemas import AttestationReceipt, BlobWriteReceipt, PersistenceReceipt
@@ -248,7 +248,7 @@ class CommandOrchestrator:
                     attestation_schema_version="v1",
                     source_system="thronos-pawssworfmanager",
                     target_backend_type=self.attestation_backend,
-                    target_network=self.attestation_backend if self.attestation_backend == "fake" else "configured",
+                    target_network=self.attestation.capabilities().get("network", "none"),
                     metadata={"idempotency_scope": self.idempotency_scope},
                 )
                 submission = self.attestation.submit_attestation(payload)
@@ -270,6 +270,21 @@ class CommandOrchestrator:
                         dry_run=bool(submission.get("dry_run", True)),
                     )
                 }
+            except AttestationAdapterError as exc:
+                retryable = exc.failure_class == "transient"
+                if retryable and attempts < self.retry_policy.max_attempts:
+                    continue
+                return {
+                    "error": {
+                        "stage": "attestation",
+                        "retryable": retryable,
+                        "failure_class": exc.failure_class,
+                        "error_code": exc.code,
+                        "attempts": attempts,
+                        "max_attempts": self.retry_policy.max_attempts,
+                        "message": str(exc),
+                    }
+                }
             except Exception as exc:  # controlled boundary mapping
                 retryable = is_retryable(exc, self.retry_policy)
                 if retryable and attempts < self.retry_policy.max_attempts:
@@ -279,6 +294,7 @@ class CommandOrchestrator:
                         "stage": "attestation",
                         "retryable": retryable,
                         "failure_class": classify_failure(exc),
+                        "error_code": "attestation_submit_failed",
                         "attempts": attempts,
                         "max_attempts": self.retry_policy.max_attempts,
                         "message": str(exc),
