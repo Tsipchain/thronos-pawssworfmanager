@@ -10,6 +10,14 @@ Adapters expose `poll_attestation(submission_id, tx_hash, reconciliation_id)` an
 - `lifecycle_state` aligned to confirmation outcome
 - `confirmation_id` (optional, when available)
 
+Identity tuple rules for polling:
+
+- `submission_id` is required
+- `tx_hash` must be a valid `0x`-prefixed 32-byte hash when provided
+- `reconciliation_id` must be `"<network>:<tx_hash>"`
+- if only `reconciliation_id` is supplied, `<tx_hash>` is used for polling
+- if both `tx_hash` and `reconciliation_id` are supplied, they must match
+
 ## Confirmation transitions
 
 Allowed transitions:

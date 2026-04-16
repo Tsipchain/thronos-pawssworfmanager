@@ -317,6 +317,45 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(poll["confirmation_status"], "rejected_or_dropped")
         self.assertEqual(poll["lifecycle_state"], "submission_rejected")
 
+    def test_real_thronos_polling_rejects_mismatched_reconciliation_ids(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda _url, _method, _params: {"jsonrpc": "2.0", "result": {"status": "pending"}},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.poll_attestation(
+                "sub_abc",
+                "0x" + "a" * 64,
+                "thronos-mainnet:0x" + "b" * 64,
+            )
+        self.assertEqual(err.exception.code, "attestation_poll_id_mismatch")
+
+    def test_real_thronos_polling_accepts_tx_hash_from_reconciliation_id(self):
+        captured = {}
+
+        def _rpc_post(_url, _method, params):
+            captured["params"] = params
+            return {"jsonrpc": "2.0", "result": {"status": "pending"}}
+
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=_rpc_post,
+        )
+        rid = "thronos-mainnet:0x" + "a" * 64
+        poll = a.poll_attestation("sub_abc", None, rid)
+        self.assertEqual(poll["confirmation_status"], "still_pending")
+        self.assertEqual(captured["params"][0]["tx_hash"], "0x" + "a" * 64)
+
     def test_real_thronos_attestation_adapter_rejects_invalid_tx_hash(self):
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",

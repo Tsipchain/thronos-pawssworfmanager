@@ -265,11 +265,54 @@ class RealThronosAttestationAdapter:
                 "submission_id required for polling",
                 "submission_unknown",
             )
+        normalized_tx_hash = tx_hash
+        if tx_hash is not None:
+            if not isinstance(tx_hash, str) or not re.fullmatch(r"0x[a-fA-F0-9]{64}", tx_hash):
+                raise AttestationAdapterError(
+                    "attestation_poll_invalid_tx_hash",
+                    "permanent",
+                    "poll tx hash invalid",
+                    "submission_unknown",
+                )
+
+        if reconciliation_id is not None:
+            if not isinstance(reconciliation_id, str):
+                raise AttestationAdapterError(
+                    "attestation_poll_invalid_reconciliation_id",
+                    "permanent",
+                    "reconciliation_id must be string",
+                    "submission_unknown",
+                )
+            prefix = f"{self.network}:"
+            if not reconciliation_id.startswith(prefix):
+                raise AttestationAdapterError(
+                    "attestation_poll_invalid_reconciliation_id",
+                    "permanent",
+                    "reconciliation_id network mismatch",
+                    "submission_unknown",
+                )
+            rid_tx_hash = reconciliation_id[len(prefix) :]
+            if not re.fullmatch(r"0x[a-fA-F0-9]{64}", rid_tx_hash):
+                raise AttestationAdapterError(
+                    "attestation_poll_invalid_reconciliation_id",
+                    "permanent",
+                    "reconciliation_id tx hash invalid",
+                    "submission_unknown",
+                )
+            if normalized_tx_hash is None:
+                normalized_tx_hash = rid_tx_hash
+            elif normalized_tx_hash.lower() != rid_tx_hash.lower():
+                raise AttestationAdapterError(
+                    "attestation_poll_id_mismatch",
+                    "permanent",
+                    "tx_hash does not match reconciliation_id",
+                    "submission_unknown",
+                )
         params = [
             {
                 "chain_id": self.chain_id,
                 "submission_id": submission_id,
-                "tx_hash": tx_hash,
+                "tx_hash": normalized_tx_hash,
                 "reconciliation_id": reconciliation_id,
             }
         ]
