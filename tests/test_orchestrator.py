@@ -80,6 +80,20 @@ class FailingPollAttestationAdapter(FakeAttestationAdapter):
         )
 
 
+class CountingPollAttestationAdapter(FakeAttestationAdapter):
+    def __init__(self):
+        self.poll_calls = 0
+
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        self.poll_calls += 1
+        return {
+            "confirmation_status": "still_pending",
+            "lifecycle_state": "submitted_not_finalized",
+            "confirmation_id": None,
+            "polling_supported": True,
+        }
+
+
 class TestOrchestrator(unittest.TestCase):
     def test_orchestrator_persists_manifest_and_returns_attestation(self):
         store = InMemoryManifestStore()
@@ -533,7 +547,7 @@ class TestOrchestrator(unittest.TestCase):
 
     def test_reconcile_attestation_receipt_rejects_missing_submission_id(self):
         store = InMemoryManifestStore()
-        att = PollingAttestationAdapter("still_pending", "submitted_not_finalized")
+        att = CountingPollAttestationAdapter()
         orch = CommandOrchestrator(store, att)
         out = orch.reconcile_attestation_receipt(
             {
@@ -545,10 +559,11 @@ class TestOrchestrator(unittest.TestCase):
             }
         )
         self.assertEqual(out["error"]["error_code"], "invalid_reconciliation_tuple")
+        self.assertEqual(att.poll_calls, 0)
 
     def test_reconcile_attestation_receipt_requires_tx_hash_or_reconciliation_id(self):
         store = InMemoryManifestStore()
-        att = PollingAttestationAdapter("still_pending", "submitted_not_finalized")
+        att = CountingPollAttestationAdapter()
         orch = CommandOrchestrator(store, att)
         out = orch.reconcile_attestation_receipt(
             {
@@ -560,3 +575,4 @@ class TestOrchestrator(unittest.TestCase):
             }
         )
         self.assertEqual(out["error"]["error_code"], "invalid_reconciliation_tuple")
+        self.assertEqual(att.poll_calls, 0)

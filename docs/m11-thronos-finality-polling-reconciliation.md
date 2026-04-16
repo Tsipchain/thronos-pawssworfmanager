@@ -25,6 +25,7 @@ Identity tuple rules for polling:
 - if both `tx_hash` and `reconciliation_id` are supplied, they must match
 - reconciliation requests are rejected if `submission_id` is missing
 - reconciliation requests are rejected if both `tx_hash` and `reconciliation_id` are missing
+- invalid tuples are rejected before any provider poll is attempted (fail-closed)
 
 ## Confirmation transitions
 
