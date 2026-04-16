@@ -356,6 +356,37 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(poll["confirmation_status"], "still_pending")
         self.assertEqual(captured["params"][0]["tx_hash"], "0x" + "a" * 64)
 
+    def test_real_thronos_polling_rejects_non_string_status(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda _url, _method, _params: {"jsonrpc": "2.0", "result": {"status": 42}},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
+        self.assertEqual(err.exception.code, "attestation_poll_malformed_result")
+
+    def test_real_thronos_polling_rejects_non_string_confirmation_id(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            rpc_post_fn=lambda _url, _method, _params: {
+                "jsonrpc": "2.0",
+                "result": {"status": "confirmed", "confirmation_id": 99},
+            },
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
+        self.assertEqual(err.exception.code, "attestation_poll_malformed_result")
+
     def test_real_thronos_attestation_adapter_rejects_invalid_tx_hash(self):
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",

@@ -452,11 +452,26 @@ def _validate_rpc_poll_result(doc: dict) -> dict:
             "submission_unknown",
         )
     status = result.get("status")
+    if status is not None and not isinstance(status, str):
+        raise AttestationAdapterError(
+            "attestation_poll_malformed_result",
+            "permanent",
+            "poll status must be string",
+            "submission_unknown",
+        )
+    confirmation_id = result.get("confirmation_id")
+    if confirmation_id is not None and not isinstance(confirmation_id, str):
+        raise AttestationAdapterError(
+            "attestation_poll_malformed_result",
+            "permanent",
+            "confirmation_id must be string",
+            "submission_unknown",
+        )
     if status in {"confirmed", "finalized"}:
         return {
             "confirmation_status": "confirmed",
             "lifecycle_state": "confirmed_finalized",
-            "confirmation_id": result.get("confirmation_id"),
+            "confirmation_id": confirmation_id,
             "polling_supported": True,
         }
     if status in {"pending", "submitted"}:

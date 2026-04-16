@@ -10,6 +10,12 @@ Adapters expose `poll_attestation(submission_id, tx_hash, reconciliation_id)` an
 - `lifecycle_state` aligned to confirmation outcome
 - `confirmation_id` (optional, when available)
 
+JSON-RPC poll result hardening:
+
+- poll envelope must be valid JSON-RPC `2.0`
+- `result.status`, when present, must be a string
+- `result.confirmation_id`, when present, must be a string
+
 Identity tuple rules for polling:
 
 - `submission_id` is required
