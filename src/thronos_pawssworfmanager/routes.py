@@ -117,6 +117,21 @@ _ORCHESTRATOR = CommandOrchestrator(
 )
 
 
+def _rpc_generic_policy_contract() -> dict:
+    selected = _ADAPTER_CONFIG.attestation_backend == "rpc_generic"
+    pair = f"rpc_generic+{_ADAPTER_CONFIG.execution_mode}"
+    matrix = _EXECUTION_POLICY["matrix"]["attestation"]
+    return {
+        "selected_backend": selected,
+        "policy_pair": pair,
+        "policy_allows_pair": bool(matrix.get(pair, False)),
+        "execute_forbidden_in_m13_1": True,
+        "readiness": selected and _ADAPTER_CONFIG.execution_mode == "dry_run",
+        "enabled": False,
+        "denial_reason": "policy_forbids_generic_rpc_execute_in_m13_1",
+    }
+
+
 def _capability_report() -> dict:
     return {
         "deterministic_core": {
@@ -153,6 +168,7 @@ def _capability_report() -> dict:
             "execution_enabled": _EXECUTION_GATES.execution_enabled,
             "attestation_execution_ready": _EXECUTION_GATES.execution_ready and _EXECUTION_POLICY["attestation_allowed"],
             "attestation_execution_enabled": _EXECUTION_GATES.execution_enabled and _EXECUTION_POLICY["attestation_allowed"],
+            "rpc_generic_policy": _rpc_generic_policy_contract(),
         },
         "negotiation": {
             "server_supported_api_versions": list(SUPPORTED_API_VERSIONS),
@@ -173,7 +189,7 @@ def _capability_report() -> dict:
 def _service_metadata() -> dict:
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m13-generic-rpc-real-attestation-preparation",
+        "phase": "m13.1-generic-rpc-execution-policy-hardening",
         "api_default_version": DEFAULT_API_VERSION,
         "api_supported_versions": list(SUPPORTED_API_VERSIONS),
         "execution_policy_enforced": _EXECUTION_POLICY["startup_allowed"],
@@ -183,6 +199,7 @@ def _service_metadata() -> dict:
         "execution_enabled": _EXECUTION_GATES.execution_enabled,
         "attestation_execution_ready": _EXECUTION_GATES.execution_ready and _EXECUTION_POLICY["attestation_allowed"],
         "attestation_execution_enabled": _EXECUTION_GATES.execution_enabled and _EXECUTION_POLICY["attestation_allowed"],
+        "rpc_generic_policy": _rpc_generic_policy_contract(),
     }
 
 

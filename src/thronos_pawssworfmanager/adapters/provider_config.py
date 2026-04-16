@@ -146,6 +146,12 @@ class ProviderConfigBoundary:
 
         if self.attestation.backend == "thronos_network" and self.attestation.backend_label:
             raise ValueError("contradictory_attestation_backend_label_for_thronos")
+        if self.attestation.backend == "thronos_network" and (
+            self.attestation.rpc_submit_method or self.attestation.rpc_poll_method
+        ):
+            raise ValueError("contradictory_attestation_rpc_methods_for_thronos")
+        if self.attestation.backend == "rpc_generic" and self.attestation.contract_address:
+            raise ValueError("contradictory_attestation_contract_address_for_rpc_generic")
 
     def to_redacted_dict(self) -> dict:
         return {

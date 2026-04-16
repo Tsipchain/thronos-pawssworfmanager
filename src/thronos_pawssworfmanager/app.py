@@ -20,7 +20,7 @@ def create_app(validate_paths: bool = False) -> dict:
 
     return {
         "service": "thronos-pawssworfmanager",
-        "phase": "m13-generic-rpc-real-attestation-preparation",
+        "phase": "m13.1-generic-rpc-execution-policy-hardening",
         "capabilities": [
             "canonical-manifest",
             "state-hash",
