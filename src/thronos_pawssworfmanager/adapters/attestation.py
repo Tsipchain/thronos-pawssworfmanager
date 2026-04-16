@@ -492,6 +492,7 @@ def _validate_rpc_poll_result(doc: dict) -> dict:
                 "proof_source": "thronos_rpc",
                 "proof_kind": "status_attestation",
                 "provider_status": status,
+                "confirmation_id": confirmation_id,
             },
             "polling_supported": True,
         }

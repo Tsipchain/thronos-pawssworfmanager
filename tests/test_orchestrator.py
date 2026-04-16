@@ -62,12 +62,25 @@ class PollingAttestationAdapter(FakeAttestationAdapter):
         self.lifecycle_state = lifecycle_state
 
     def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        if self.poll_status == "confirmed":
+            provider_status = "finalized"
+        elif self.poll_status == "still_pending":
+            provider_status = "pending"
+        elif self.poll_status == "rejected_or_dropped":
+            provider_status = "dropped"
+        else:
+            provider_status = "mystery"
         return {
             "confirmation_status": self.poll_status,
             "finality_status": "finalized" if self.poll_status == "confirmed" else "not_finalized",
             "lifecycle_state": self.lifecycle_state,
             "confirmation_id": "conf-123" if self.poll_status == "confirmed" else None,
-            "confirmation_proof": {"proof_source": "test", "proof_kind": "status_attestation"},
+            "confirmation_proof": {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": provider_status,
+                "confirmation_id": "conf-123" if self.poll_status == "confirmed" else None,
+            },
             "polling_supported": True,
         }
 
@@ -93,7 +106,27 @@ class CountingPollAttestationAdapter(FakeAttestationAdapter):
             "finality_status": "not_finalized",
             "lifecycle_state": "submitted_not_finalized",
             "confirmation_id": None,
-            "confirmation_proof": {"proof_source": "test", "proof_kind": "status_attestation"},
+            "confirmation_proof": {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": "pending",
+                "confirmation_id": None,
+            },
+            "polling_supported": True,
+        }
+
+
+class MalformedProofPollingAdapter(FakeAttestationAdapter):
+    def __init__(self, proof: dict | None):
+        self.proof = proof
+
+    def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
+        return {
+            "confirmation_status": "confirmed",
+            "finality_status": "finalized",
+            "lifecycle_state": "confirmed_finalized",
+            "confirmation_id": "conf-123",
+            "confirmation_proof": self.proof,
             "polling_supported": True,
         }
 
@@ -542,6 +575,69 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(first["confirmation_status"], second["confirmation_status"])
         self.assertEqual(first["finality_status"], second["finality_status"])
         self.assertEqual(second["replay_state"], "repeated_observation_consistent")
+
+    def test_reconcile_attestation_receipt_rejects_missing_confirmation_proof(self):
+        store = InMemoryManifestStore()
+        att = MalformedProofPollingAdapter(None)
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "still_pending",
+                "finality_status": "not_finalized",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["error"]["error_code"], "invalid_confirmation_proof")
+
+    def test_reconcile_attestation_receipt_rejects_confirmation_proof_with_forbidden_fields(self):
+        store = InMemoryManifestStore()
+        att = MalformedProofPollingAdapter(
+            {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": "finalized",
+                "confirmation_id": "conf-123",
+                "extra": "forbidden",
+            }
+        )
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "still_pending",
+                "finality_status": "not_finalized",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["error"]["error_code"], "invalid_confirmation_proof")
+
+    def test_reconcile_attestation_receipt_rejects_confirmation_proof_mismatch(self):
+        store = InMemoryManifestStore()
+        att = MalformedProofPollingAdapter(
+            {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": "pending",
+                "confirmation_id": "conf-123",
+            }
+        )
+        orch = CommandOrchestrator(store, att)
+        out = orch.reconcile_attestation_receipt(
+            {
+                "confirmation_status": "still_pending",
+                "finality_status": "not_finalized",
+                "lifecycle_state": "submitted_not_finalized",
+                "submission_id": "sub_abc",
+                "tx_hash": "0x" + "a" * 64,
+                "reconciliation_id": "thronos-mainnet:0x" + "a" * 64,
+            }
+        )
+        self.assertEqual(out["error"]["error_code"], "invalid_confirmation_proof")
 
     def test_reconcile_attestation_receipt_invalid_transition_is_rejected(self):
         store = InMemoryManifestStore()
