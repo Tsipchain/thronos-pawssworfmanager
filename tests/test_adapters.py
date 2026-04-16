@@ -181,6 +181,7 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(submission["tx_hash"], "0x" + "a" * 64)
         self.assertTrue(submission["submission_id"].startswith("sub_"))
         self.assertEqual(submission["confirmation_status"], "not_polled")
+        self.assertEqual(submission["finality_status"], "not_finalized")
         self.assertTrue(submission["reconciliation_id"].startswith("thronos-mainnet:0x"))
         self.assertFalse(submission["dry_run"])
 
@@ -261,6 +262,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "confirmed")
+        self.assertEqual(poll["finality_status"], "finalized")
         self.assertEqual(poll["lifecycle_state"], "confirmed_finalized")
         self.assertEqual(poll["confirmation_id"], "conf-1")
 
@@ -281,6 +283,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "unknown")
+        self.assertEqual(poll["finality_status"], "unknown")
         self.assertEqual(poll["lifecycle_state"], "submission_unknown")
 
     def test_real_thronos_polling_pending_status_classification(self):
@@ -300,6 +303,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "still_pending")
+        self.assertEqual(poll["finality_status"], "not_finalized")
         self.assertEqual(poll["lifecycle_state"], "submitted_not_finalized")
 
     def test_real_thronos_polling_rejected_status_classification(self):
@@ -319,6 +323,7 @@ class TestAdapters(unittest.TestCase):
         )
         poll = a.poll_attestation("sub_abc", "0x" + "a" * 64, "thronos-mainnet:0x" + "a" * 64)
         self.assertEqual(poll["confirmation_status"], "rejected_or_dropped")
+        self.assertEqual(poll["finality_status"], "rejected")
         self.assertEqual(poll["lifecycle_state"], "submission_rejected")
 
     def test_real_thronos_polling_rejects_mismatched_reconciliation_ids(self):

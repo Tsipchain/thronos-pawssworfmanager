@@ -62,6 +62,8 @@ class FakeAttestationAdapter:
             "tx_hash": None,
             "confirmation_id": None,
             "confirmation_status": "not_polled",
+            "finality_status": "not_finalized",
+            "confirmation_proof": None,
             "reconciliation_id": None,
             "execution_mode": "dry_run",
             "dry_run": True,
@@ -77,8 +79,10 @@ class FakeAttestationAdapter:
     def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
         return {
             "confirmation_status": "unknown",
+            "finality_status": "unknown",
             "lifecycle_state": "submission_unknown",
             "confirmation_id": None,
+            "confirmation_proof": None,
             "polling_supported": False,
         }
 
@@ -120,6 +124,8 @@ class DryRunChainAttestationAdapter:
             "tx_hash": None,
             "confirmation_id": None,
             "confirmation_status": "not_polled",
+            "finality_status": "not_finalized",
+            "confirmation_proof": None,
             "reconciliation_id": None,
             "execution_mode": "dry_run",
             "dry_run": True,
@@ -136,8 +142,10 @@ class DryRunChainAttestationAdapter:
     def poll_attestation(self, submission_id: str, tx_hash: str | None, reconciliation_id: str | None) -> dict:
         return {
             "confirmation_status": "still_pending",
+            "finality_status": "not_finalized",
             "lifecycle_state": "submitted_not_finalized",
             "confirmation_id": None,
+            "confirmation_proof": None,
             "polling_supported": True,
         }
 
@@ -237,6 +245,8 @@ class RealThronosAttestationAdapter:
             "tx_hash": tx_hash,
             "confirmation_id": None,
             "confirmation_status": "not_polled",
+            "finality_status": "not_finalized",
+            "confirmation_proof": None,
             "reconciliation_id": f"{self.network}:{tx_hash}",
             "execution_mode": "execute",
             "dry_run": False,
@@ -471,29 +481,55 @@ def _validate_rpc_poll_result(doc: dict) -> dict:
             "submission_unknown",
         )
     if status in {"confirmed", "finalized"}:
+        finality_status = "finalized" if status == "finalized" else "not_finalized"
+        lifecycle_state = "confirmed_finalized" if status == "finalized" else "confirmed_not_finalized"
         return {
             "confirmation_status": "confirmed",
-            "lifecycle_state": "confirmed_finalized",
+            "finality_status": finality_status,
+            "lifecycle_state": lifecycle_state,
             "confirmation_id": confirmation_id,
+            "confirmation_proof": {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": status,
+            },
             "polling_supported": True,
         }
     if status in {"pending", "submitted"}:
         return {
             "confirmation_status": "still_pending",
+            "finality_status": "not_finalized",
             "lifecycle_state": "submitted_not_finalized",
             "confirmation_id": None,
+            "confirmation_proof": {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": status,
+            },
             "polling_supported": True,
         }
     if status in {"rejected", "dropped"}:
         return {
             "confirmation_status": "rejected_or_dropped",
+            "finality_status": "rejected",
             "lifecycle_state": "submission_rejected",
             "confirmation_id": None,
+            "confirmation_proof": {
+                "proof_source": "thronos_rpc",
+                "proof_kind": "status_attestation",
+                "provider_status": status,
+            },
             "polling_supported": True,
         }
     return {
         "confirmation_status": "unknown",
+        "finality_status": "unknown",
         "lifecycle_state": "submission_unknown",
         "confirmation_id": None,
+        "confirmation_proof": {
+            "proof_source": "thronos_rpc",
+            "proof_kind": "status_attestation",
+            "provider_status": status,
+        },
         "polling_supported": True,
     }
