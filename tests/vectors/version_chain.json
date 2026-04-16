@@ -1,0 +1,10 @@
+[
+  {
+    "name": "valid_linear_chain",
+    "chain": [
+      {"version": 1, "manifest_hash": "h1", "parent_hash": null},
+      {"version": 2, "manifest_hash": "h2", "parent_hash": "h1"},
+      {"version": 3, "manifest_hash": "h3", "parent_hash": "h2"}
+    ]
+  }
+]
