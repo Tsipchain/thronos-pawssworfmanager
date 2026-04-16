@@ -347,7 +347,12 @@ class CommandOrchestrator:
                     source_system="thronos-pawssworfmanager",
                     target_backend_type=self.attestation_backend,
                     target_network=self.attestation.capabilities().get("network", "none"),
-                    metadata={"idempotency_scope": self.idempotency_scope},
+                    metadata={
+                        "idempotency_scope": self.idempotency_scope,
+                        "tenant_id": "default",
+                        "service": "thronos-pawssworfmanager",
+                        "artifact_type": "vault_manifest",
+                    },
                 )
                 submission = self.attestation.submit_attestation(payload)
                 return {

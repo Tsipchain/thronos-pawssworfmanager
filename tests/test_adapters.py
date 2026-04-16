@@ -36,7 +36,17 @@ class TestAdapters(unittest.TestCase):
             source_system="test-suite",
             target_backend_type=target_backend_type,
             target_network=target_network,
-            metadata={"attestor_signature": "sig-test"} if metadata is None else metadata,
+            metadata=(
+                {
+                    "attestor_signature": "sig-test",
+                    "tenant_id": "tenant-test",
+                    "artifact_type": "vault_manifest",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "service": "test-suite",
+                }
+                if metadata is None
+                else metadata
+            ),
         )
 
     def test_blob_storage_in_memory(self):
@@ -193,12 +203,16 @@ class TestAdapters(unittest.TestCase):
         self.assertFalse(submission["dry_run"])
         self.assertEqual(captured["url"], "https://rpc.example")
         body = captured["body"]
-        self.assertEqual(body["type"], "AI_ATTESTATION")
+        self.assertEqual(body["tx_type"], "AI_ATTESTATION")
+        self.assertEqual(body["service"], "test-suite")
+        self.assertEqual(body["artifact_type"], "vault_manifest")
+        self.assertEqual(body["tenant_id"], "tenant-test")
+        self.assertEqual(body["created_at"], "2026-01-01T00:00:00Z")
         self.assertEqual(body["payload"]["manifest_hash"], "abcdef123")
         self.assertEqual(body["payload"]["manifest_version"], 1)
         self.assertEqual(body["payload"]["attestation_schema_version"], "v1")
-        self.assertEqual(body["attestor_pubkey"], "ref://signer")
-        self.assertEqual(body["attestor_signature"], "sig-test")
+        self.assertEqual(body["pubkey"], "ref://signer")
+        self.assertEqual(body["signature"], "sig-test")
         self.assertNotIn("jsonrpc", body)
         self.assertNotIn("method", body)
         self.assertNotIn("params", body)
@@ -274,13 +288,33 @@ class TestAdapters(unittest.TestCase):
             self._payload(
                 target_backend_type="thronos_network",
                 target_network="thronos-mainnet",
-                metadata={},
+                metadata={"tenant_id": "tenant-test"},
             )
         )
         body = captured["body"]
-        self.assertEqual(body["attestor_pubkey"], "pubkey-1")
-        self.assertEqual(body["attestor_signature"], "sig-from-ref")
+        self.assertEqual(body["pubkey"], "pubkey-1")
+        self.assertEqual(body["signature"], "sig-from-ref")
         self.assertIn("payload", body)
+
+    def test_real_thronos_attestation_adapter_rejects_missing_required_tenant_id(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            submit_post_fn=lambda *_args, **_kwargs: {"status": "accepted", "tx_hash": "0x" + "a" * 64},
+        )
+        with self.assertRaises(AttestationAdapterError) as err:
+            a.submit_attestation(
+                self._payload(
+                    target_backend_type="thronos_network",
+                    target_network="thronos-mainnet",
+                    metadata={"attestor_signature": "sig-only"},
+                )
+            )
+        self.assertEqual(err.exception.code, "attestation_missing_required_submit_fields")
 
     def test_real_thronos_attestation_adapter_rejects_missing_tx_hash(self):
         a = RealThronosAttestationAdapter(

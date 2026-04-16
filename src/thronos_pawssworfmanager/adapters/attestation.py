@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -216,9 +217,24 @@ class RealThronosAttestationAdapter:
                 "attestor_pubkey/attestor_signature required for AI_ATTESTATION submit",
                 "submission_failed_permanent",
             )
+        tenant_id = payload.metadata.get("tenant_id")
+        if not tenant_id:
+            raise AttestationAdapterError(
+                "attestation_missing_required_submit_fields",
+                "permanent",
+                "tenant_id required for AI_ATTESTATION submit",
+                "submission_failed_permanent",
+            )
+        artifact_type = payload.metadata.get("artifact_type") or "vault_manifest"
+        created_at = payload.metadata.get("created_at") or _utc_now_iso8601()
+        service = payload.metadata.get("service") or payload.source_system
 
         request_body = {
-            "type": "AI_ATTESTATION",
+            "tx_type": "AI_ATTESTATION",
+            "service": service,
+            "artifact_type": artifact_type,
+            "tenant_id": tenant_id,
+            "created_at": created_at,
             "payload": {
                 "chain_id": self.chain_id,
                 "contract_address": self.contract_address,
@@ -229,8 +245,8 @@ class RealThronosAttestationAdapter:
                 "target_network": payload.target_network,
                 "metadata": payload.metadata,
             },
-            "attestor_pubkey": attestor_pubkey,
-            "attestor_signature": attestor_signature,
+            "pubkey": attestor_pubkey,
+            "signature": attestor_signature,
         }
         try:
             submit_doc = self._submit_post(self.rpc_url, request_body)
@@ -556,6 +572,10 @@ def _json_http_post(url: str, body: dict) -> dict:
     req = Request(url, data=encoded, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _utc_now_iso8601() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _validate_rpc_generic_submission_result(doc: dict) -> dict:
