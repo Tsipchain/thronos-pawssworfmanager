@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -256,7 +257,7 @@ class RealThronosAttestationAdapter:
         }
         submit_headers: dict[str, str] = {}
         if self.submit_auth_header_name and self.submit_auth_header_ref:
-            auth_value = self.submit_auth_header_ref
+            auth_value = _resolve_env_ref(self.submit_auth_header_ref)
             if self.submit_auth_header_prefix:
                 auth_value = f"{self.submit_auth_header_prefix} {auth_value}"
             submit_headers[self.submit_auth_header_name] = auth_value
@@ -598,6 +599,28 @@ def _invoke_submit_post(fn: Callable[..., dict], url: str, body: dict, headers: 
         return fn(url, body, headers)
     except TypeError:
         return fn(url, body)
+
+
+def _resolve_env_ref(value: str) -> str:
+    if value.startswith("env://"):
+        key = value[len("env://") :]
+        if not key:
+            raise AttestationAdapterError(
+                "attestation_auth_ref_invalid",
+                "permanent",
+                "empty env ref for auth header",
+                "submission_failed_permanent",
+            )
+        resolved = os.getenv(key)
+        if not resolved:
+            raise AttestationAdapterError(
+                "attestation_auth_ref_unresolved",
+                "permanent",
+                f"auth header env ref not set: {key}",
+                "submission_failed_permanent",
+            )
+        return resolved
+    return value
 
 
 def _validate_rpc_generic_submission_result(doc: dict) -> dict:

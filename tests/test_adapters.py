@@ -361,6 +361,48 @@ class TestAdapters(unittest.TestCase):
         headers = captured["headers"]
         self.assertEqual(headers["X-Internal-Key"], "ref://internal-key")
 
+    def test_real_thronos_attestation_adapter_resolves_env_ref_auth_header(self):
+        captured: dict[str, object] = {}
+
+        def _submit(_url: str, _body: dict, headers: dict[str, str]) -> dict:
+            captured["headers"] = headers
+            return {"status": "accepted", "tx_hash": "0x" + "a" * 64}
+
+        with mock.patch.dict("os.environ", {"THONOS_SUBMIT_TOKEN": "resolved-token"}, clear=False):
+            a = RealThronosAttestationAdapter(
+                rpc_url="https://rpc.example",
+                chain_id="111",
+                contract_address="0xabc",
+                signer_ref="ref://signer",
+                network="thronos-mainnet",
+                exec_enabled=True,
+                submit_auth_header_name="Authorization",
+                submit_auth_header_ref="env://THONOS_SUBMIT_TOKEN",
+                submit_auth_header_prefix="Bearer",
+                submit_post_fn=_submit,
+            )
+            a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
+        headers = captured["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer resolved-token")
+
+    def test_real_thronos_attestation_adapter_rejects_unresolved_env_ref_auth_header(self):
+        a = RealThronosAttestationAdapter(
+            rpc_url="https://rpc.example",
+            chain_id="111",
+            contract_address="0xabc",
+            signer_ref="ref://signer",
+            network="thronos-mainnet",
+            exec_enabled=True,
+            submit_auth_header_name="Authorization",
+            submit_auth_header_ref="env://MISSING_TOKEN",
+            submit_auth_header_prefix="Bearer",
+            submit_post_fn=lambda *_args, **_kwargs: {"status": "accepted", "tx_hash": "0x" + "a" * 64},
+        )
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(AttestationAdapterError) as err:
+                a.submit_attestation(self._payload(target_backend_type="thronos_network", target_network="thronos-mainnet"))
+        self.assertEqual(err.exception.code, "attestation_auth_ref_unresolved")
+
     def test_real_thronos_attestation_adapter_rejects_missing_tx_hash(self):
         a = RealThronosAttestationAdapter(
             rpc_url="https://rpc.example",
