@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -172,7 +173,10 @@ class RealThronosAttestationAdapter:
         network: str,
         exec_enabled: bool,
         rpc_post_fn: Callable[[str, str, list[dict]], dict] | None = None,
-        submit_post_fn: Callable[[str, dict], dict] | None = None,
+        submit_auth_header_name: str | None = None,
+        submit_auth_header_ref: str | None = None,
+        submit_auth_header_prefix: str | None = None,
+        submit_post_fn: Callable[..., dict] | None = None,
     ) -> None:
         self.rpc_url = rpc_url
         self.chain_id = chain_id
@@ -180,11 +184,14 @@ class RealThronosAttestationAdapter:
         self.signer_ref = signer_ref
         self.network = network
         self.exec_enabled = exec_enabled
+        self.submit_auth_header_name = submit_auth_header_name
+        self.submit_auth_header_ref = submit_auth_header_ref
+        self.submit_auth_header_prefix = submit_auth_header_prefix
         self._rpc_post = rpc_post_fn or _json_rpc_post
         if submit_post_fn is not None:
-            self._submit_post = submit_post_fn
+            self._submit_post = lambda url, body, headers: _invoke_submit_post(submit_post_fn, url, body, headers)
         elif rpc_post_fn is not None:
-            self._submit_post = lambda url, body: rpc_post_fn(url, body)  # type: ignore[misc,call-arg]
+            self._submit_post = lambda url, body, _headers: rpc_post_fn(url, body)  # type: ignore[misc,call-arg]
         else:
             self._submit_post = _json_http_post
 
@@ -248,8 +255,14 @@ class RealThronosAttestationAdapter:
             "pubkey": attestor_pubkey,
             "signature": attestor_signature,
         }
+        submit_headers: dict[str, str] = {}
+        if self.submit_auth_header_name and self.submit_auth_header_ref:
+            auth_value = _resolve_env_ref(self.submit_auth_header_ref)
+            if self.submit_auth_header_prefix:
+                auth_value = f"{self.submit_auth_header_prefix} {auth_value}"
+            submit_headers[self.submit_auth_header_name] = auth_value
         try:
-            submit_doc = self._submit_post(self.rpc_url, request_body)
+            submit_doc = self._submit_post(self.rpc_url, request_body, submit_headers)
         except HTTPError as exc:
             if exc.code == 400:
                 raise AttestationAdapterError(
@@ -567,15 +580,47 @@ def _json_rpc_post(rpc_url: str, method: str, params: list[dict]) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _json_http_post(url: str, body: dict) -> dict:
+def _json_http_post(url: str, body: dict, extra_headers: dict[str, str] | None = None) -> dict:
     encoded = json.dumps(body).encode("utf-8")
-    req = Request(url, data=encoded, headers={"Content-Type": "application/json"}, method="POST")
+    headers = {"Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
+    req = Request(url, data=encoded, headers=headers, method="POST")
     with urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
 def _utc_now_iso8601() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _invoke_submit_post(fn: Callable[..., dict], url: str, body: dict, headers: dict[str, str]) -> dict:
+    try:
+        return fn(url, body, headers)
+    except TypeError:
+        return fn(url, body)
+
+
+def _resolve_env_ref(value: str) -> str:
+    if value.startswith("env://"):
+        key = value[len("env://") :]
+        if not key:
+            raise AttestationAdapterError(
+                "attestation_auth_ref_invalid",
+                "permanent",
+                "empty env ref for auth header",
+                "submission_failed_permanent",
+            )
+        resolved = os.getenv(key)
+        if not resolved:
+            raise AttestationAdapterError(
+                "attestation_auth_ref_unresolved",
+                "permanent",
+                f"auth header env ref not set: {key}",
+                "submission_failed_permanent",
+            )
+        return resolved
+    return value
 
 
 def _validate_rpc_generic_submission_result(doc: dict) -> dict:

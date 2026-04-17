@@ -56,6 +56,7 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertNotIn("BLOB_ACCESS_KEY", combined)
         self.assertNotIn("BLOB_SECRET_KEY", combined)
         self.assertNotIn("ATTESTATION_SIGNER_KEY", combined)
+        self.assertNotIn("ATTESTATION_AUTH_HEADER_VALUE", combined)
         self.assertNotIn("raw-secret", combined)
         self.assertNotIn("env://", combined)
 
@@ -66,6 +67,8 @@ class TestRuntimeShell(unittest.TestCase):
         self.assertEqual(provider["field_classification"]["blob"]["access_key_ref"], "sensitive_ref")
         self.assertEqual(provider["field_classification"]["blob"]["access_key_raw"], "forbidden_raw")
         self.assertEqual(provider["field_classification"]["attestation"]["signer_ref"], "sensitive_ref")
+        self.assertEqual(provider["field_classification"]["attestation"]["auth_header_ref"], "sensitive_ref")
+        self.assertEqual(provider["field_classification"]["attestation"]["auth_header_raw"], "forbidden_raw")
         self.assertEqual(provider["redaction_matrix"]["forbidden_raw"], "never_report_and_refuse_startup_if_set")
 
     def test_capabilities_report_attestation_backend_contracts(self):

@@ -130,6 +130,19 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         cfg = resolve_adapter_config({})
         with self.assertRaises(ValueError):
             load_provider_config_boundary({"BLOB_ACCESS_KEY": "raw-secret"}, cfg)
+        cfg_thronos = resolve_adapter_config({"ATTESTATION_BACKEND": "thronos_network", "ADAPTER_EXECUTION_MODE": "dry_run"})
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary(
+                {
+                    "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
+                    "ATTESTATION_CHAIN_ID": "42",
+                    "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
+                    "ATTESTATION_SIGNER_REF": "env://chain-signer",
+                    "ATTESTATION_AUTH_HEADER_VALUE": "raw-secret",
+                },
+                cfg_thronos,
+            )
 
     def test_provider_config_boundary_redacts_refs(self):
         cfg = resolve_adapter_config(
@@ -151,6 +164,9 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
                 "ATTESTATION_CHAIN_ID": "42",
                 "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
                 "ATTESTATION_SIGNER_REF": "env://chain-signer",
+                "ATTESTATION_AUTH_HEADER_NAME": "Authorization",
+                "ATTESTATION_AUTH_HEADER_REF": "env://submit-token",
+                "ATTESTATION_AUTH_HEADER_PREFIX": "Bearer",
             },
             cfg,
         )
@@ -158,6 +174,9 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
         self.assertEqual(redacted["blob"]["access_key_ref"], "<redacted:set>")
         self.assertEqual(redacted["blob"]["secret_key_ref"], "<redacted:set>")
         self.assertEqual(redacted["attestation"]["signer_ref"], "<redacted:set>")
+        self.assertEqual(redacted["attestation"]["auth_header_ref"], "<redacted:set>")
+        self.assertEqual(redacted["attestation"]["auth_header_name"], "Authorization")
+        self.assertEqual(redacted["attestation"]["auth_header_prefix"], "Bearer")
 
     def test_provider_config_rejects_contradictory_fields_for_in_memory_and_fake(self):
         cfg = resolve_adapter_config({})
@@ -216,6 +235,18 @@ class TestAdapterBoundaryContracts(unittest.TestCase):
                     "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
                     "ATTESTATION_CHAIN_ID": "42",
                     "ATTESTATION_SIGNER_REF": "env://chain-signer",
+                },
+                cfg_chain,
+            )
+        with self.assertRaises(ValueError):
+            load_provider_config_boundary(
+                {
+                    "ATTESTATION_RPC_URL": "https://rpc.example",
+                    "ATTESTATION_TARGET_NETWORK": "thronos-mainnet",
+                    "ATTESTATION_CHAIN_ID": "42",
+                    "ATTESTATION_CONTRACT_ADDRESS": "0xabc",
+                    "ATTESTATION_SIGNER_REF": "env://chain-signer",
+                    "ATTESTATION_AUTH_HEADER_NAME": "Authorization",
                 },
                 cfg_chain,
             )

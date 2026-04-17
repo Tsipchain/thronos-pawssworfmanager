@@ -12,6 +12,7 @@ _FORBIDDEN_RAW_SECRET_ENV_KEYS = (
     "BLOB_SECRET_KEY",
     "ATTESTATION_SIGNER_KEY",
     "ATTESTATION_SIGNER_RAW",
+    "ATTESTATION_AUTH_HEADER_VALUE",
 )
 
 _BLOB_CLASSIFICATION = {
@@ -35,7 +36,11 @@ _ATTESTATION_CLASSIFICATION = {
     "backend_label": "public",
     "rpc_submit_method": "public",
     "rpc_poll_method": "public",
+    "auth_header_name": "public",
+    "auth_header_ref": "sensitive_ref",
+    "auth_header_prefix": "public",
     "signer_raw": "forbidden_raw",
+    "auth_header_raw": "forbidden_raw",
 }
 
 _REDACTION_MATRIX = {
@@ -75,6 +80,9 @@ class AttestationProviderConfig:
     backend_label: str | None
     rpc_submit_method: str | None
     rpc_poll_method: str | None
+    auth_header_name: str | None
+    auth_header_ref: str | None
+    auth_header_prefix: str | None
 
 
 @dataclass(frozen=True)
@@ -136,6 +144,9 @@ class ProviderConfigBoundary:
                 self.attestation.backend_label,
                 self.attestation.rpc_submit_method,
                 self.attestation.rpc_poll_method,
+                self.attestation.auth_header_name,
+                self.attestation.auth_header_ref,
+                self.attestation.auth_header_prefix,
             ]
         )
         if self.attestation.backend == "fake" and att_any:
@@ -152,6 +163,8 @@ class ProviderConfigBoundary:
             raise ValueError("contradictory_attestation_rpc_methods_for_thronos")
         if self.attestation.backend == "rpc_generic" and self.attestation.contract_address:
             raise ValueError("contradictory_attestation_contract_address_for_rpc_generic")
+        if bool(self.attestation.auth_header_name) != bool(self.attestation.auth_header_ref):
+            raise ValueError("incomplete_attestation_auth_header_pair")
 
     def to_redacted_dict(self) -> dict:
         return {
@@ -186,6 +199,9 @@ class ProviderConfigBoundary:
                 "backend_label": self.attestation.backend_label,
                 "rpc_submit_method": self.attestation.rpc_submit_method,
                 "rpc_poll_method": self.attestation.rpc_poll_method,
+                "auth_header_name": self.attestation.auth_header_name,
+                "auth_header_ref": _redact_ref(self.attestation.auth_header_ref),
+                "auth_header_prefix": self.attestation.auth_header_prefix,
             },
         }
 
@@ -222,6 +238,9 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
         backend_label=env.get("ATTESTATION_BACKEND_LABEL"),
         rpc_submit_method=env.get("ATTESTATION_RPC_SUBMIT_METHOD"),
         rpc_poll_method=env.get("ATTESTATION_RPC_POLL_METHOD"),
+        auth_header_name=env.get("ATTESTATION_AUTH_HEADER_NAME"),
+        auth_header_ref=env.get("ATTESTATION_AUTH_HEADER_REF"),
+        auth_header_prefix=env.get("ATTESTATION_AUTH_HEADER_PREFIX"),
     )
 
     boundary = ProviderConfigBoundary(
@@ -239,6 +258,9 @@ def load_provider_config_boundary(env: dict[str, str], config: AdapterConfig) ->
                 "backend_label",
                 "rpc_submit_method",
                 "rpc_poll_method",
+                "auth_header_name",
+                "auth_header_ref",
+                "auth_header_prefix",
             ),
         },
     )

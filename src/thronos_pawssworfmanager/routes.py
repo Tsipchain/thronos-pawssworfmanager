@@ -96,6 +96,9 @@ elif _ADAPTER_CONFIG.attestation_backend == "thronos_network" and _EXECUTION_GAT
         signer_ref=_PROVIDER_CONFIG.attestation.signer_ref,
         network=_PROVIDER_CONFIG.attestation.target_network,
         exec_enabled=True,
+        submit_auth_header_name=_PROVIDER_CONFIG.attestation.auth_header_name,
+        submit_auth_header_ref=_PROVIDER_CONFIG.attestation.auth_header_ref,
+        submit_auth_header_prefix=_PROVIDER_CONFIG.attestation.auth_header_prefix,
     )
 else:
     _ATTESTATION = DryRunChainAttestationAdapter(
